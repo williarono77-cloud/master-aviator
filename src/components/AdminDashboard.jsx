@@ -57,6 +57,8 @@ export default function AdminDashboard({ user, setMessage, onNotAdmin }) {
       .then(({ data, error }) => {
         if (cancelled) return
         if (error) {
+          console.error('AdminDashboard: profile role fetch failed', error)
+          setMessage?.({ type: 'error', text: 'Could not verify access.' })
           setProfileRole(null)
           return
         }
