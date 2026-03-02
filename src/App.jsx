@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { supabase, isSupabaseConfigured } from "./supabaseClient.js";
+import { getAuthRole, setAuthRole, clearAuthRole } from "./utils/storage.js";
 
 import TopBar from "./components/TopBar.jsx";
 import HeaderRow from "./components/HeaderRow.jsx";
@@ -21,6 +22,7 @@ import Dashboard from "./components/Dashboard.jsx";
 export default function App() {
   const [session, setSession] = useState(null);
   const [user, setUser] = useState(null);
+  const [role, setRole] = useState(null); // 'admin' | 'user' from profiles; null when logged out
   const [loading, setLoading] = useState(true);
   const [message, setMessage] = useState(null);
 
@@ -99,13 +101,35 @@ export default function App() {
     }
   }, []);
 
-  // Initialize session
+  function fetchAndSetRole(uid, cancelledRef) {
+    if (!uid) return;
+    setRole(getAuthRole(uid) ?? null);
+    supabase
+      .from("profiles")
+      .select("role")
+      .eq("id", uid)
+      .maybeSingle()
+      .then(({ data, error }) => {
+        if (cancelledRef?.current) return;
+        if (error) {
+          console.error("Profile role fetch failed", error);
+          setRole((prev) => prev ?? "user");
+          return;
+        }
+        const r = data?.role === "admin" ? "admin" : "user";
+        setRole(r);
+        setAuthRole(uid, r);
+      });
+  }
+
+  // Initialize session and role
   useEffect(() => {
-    let cancelled = false;
+    const cancelled = { current: false };
 
     if (!isSupabaseConfigured) {
       setSession(null);
       setUser(null);
+      setRole(null);
       setLoading(false);
       return;
     }
@@ -113,26 +137,39 @@ export default function App() {
     supabase.auth
       .getSession()
       .then(({ data }) => {
-        if (cancelled) return;
+        if (cancelled.current) return;
         const s = data?.session ?? null;
         setSession(s);
         setUser(s?.user ?? null);
         setLoading(false);
+        if (!s?.user?.id) {
+          setRole(null);
+          clearAuthRole();
+        } else {
+          fetchAndSetRole(s.user.id, cancelled);
+        }
       })
       .catch(() => {
-        if (cancelled) return;
+        if (cancelled.current) return;
         setSession(null);
         setUser(null);
+        setRole(null);
         setLoading(false);
       });
 
     const { data } = supabase.auth.onAuthStateChange((_event, s) => {
       setSession(s);
       setUser(s?.user ?? null);
+      if (!s?.user?.id) {
+        setRole(null);
+        clearAuthRole();
+      } else {
+        fetchAndSetRole(s.user.id, cancelled);
+      }
     });
 
     return () => {
-      cancelled = true;
+      cancelled.current = true;
       data?.subscription?.unsubscribe?.();
     };
   }, []);
@@ -279,6 +316,7 @@ export default function App() {
 
   const handleLogout = useCallback(async () => {
     try {
+      clearAuthRole();
       await supabase.auth.signOut();
     } finally {
       setDrawerOpen(false);
@@ -400,6 +438,7 @@ export default function App() {
         onClose={() => setDrawerOpen(false)}
         session={session}
         user={user}
+        role={role}
         onDepositClick={() => setDepositModalOpen(true)}
         onWithdrawClick={() => setWithdrawModalOpen(true)}
         onAuthClick={() => setAuthModalOpen(true)}
