@@ -1,14 +1,12 @@
 import { useState, useEffect } from 'react'
-import { supabase } from '../supabaseClient.js'
 import { getToggle, setToggle } from '../utils/storage.js'
 import { formatPhone } from '../utils/formatPhone.js'
 import ThemeToggle from './ThemeToggle.jsx'
 
-export default function Drawer({ isOpen, onClose, session, user, onDepositClick, onWithdrawClick, onAuthClick, onLogout }) {
+export default function Drawer({ isOpen, onClose, session, user, role, onDepositClick, onWithdrawClick, onAuthClick, onLogout }) {
   const [sound, setSound] = useState(false)
   const [music, setMusic] = useState(false)
   const [animation, setAnimation] = useState(true)
-  const [profileRole, setProfileRole] = useState(null)
 
   useEffect(() => {
     if (isOpen) {
@@ -17,19 +15,6 @@ export default function Drawer({ isOpen, onClose, session, user, onDepositClick,
       setAnimation(getToggle('animation'))
     }
   }, [isOpen])
-
-  useEffect(() => {
-    if (!user?.id) {
-      setProfileRole(null)
-      return
-    }
-    let cancelled = false
-    supabase.from('profiles').select('role').eq('id', user.id).maybeSingle()
-      .then(({ data }) => {
-        if (!cancelled) setProfileRole(data?.role ?? null)
-      })
-    return () => { cancelled = true }
-  }, [user?.id])
 
   function handleToggle(key, value, setter) {
     setter(value)
@@ -142,7 +127,7 @@ export default function Drawer({ isOpen, onClose, session, user, onDepositClick,
           </button>
           {session ? (
             <>
-              {profileRole === 'admin' && (
+              {role === 'admin' && (
                 <a 
                   href="/admin.html" 
                   className="drawer__menu-item drawer__menu-item--admin"
