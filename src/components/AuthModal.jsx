@@ -93,6 +93,9 @@ export default function AuthModal({ isOpen, onClose, onSuccess }) {
           .eq('id', signInData.user.id)
           .maybeSingle()
 
+        if (profileError) {
+          console.error('Profile role fetch failed after login', profileError)
+        }
         if (!profileError && profile?.role === 'admin') {
           onClose()
           window.location.replace('/admin.html')
