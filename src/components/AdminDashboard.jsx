@@ -197,7 +197,9 @@ export default function AdminDashboard({ user, setMessage, onNotAdmin }) {
     }
   }, [])
 
-  const fetchCurrentRound = useCallback(async () => {
+  
+
+    const fetchCurrentRound = useCallback(async () => {
     setRoundError(null)
     const { data, error } = await supabase.from('current_round').select('*').maybeSingle()
     if (error) {
@@ -205,9 +207,9 @@ export default function AdminDashboard({ user, setMessage, onNotAdmin }) {
       setCurrentRound(null)
       return
     }
-    setCurrentRound(data)
-  }, [])
-
+        setCurrentRound(data)
+          }, [])
+      
   const fetchNextRound = useCallback(async () => {
     setNextRoundError(null)
     const { data, error } = await supabase
@@ -222,7 +224,7 @@ export default function AdminDashboard({ user, setMessage, onNotAdmin }) {
     }
     setNextRound(data)
   }, [])
-
+  
   const handleRefreshAll = useCallback(() => {
     fetchWithdrawals()
     fetchDeposits()
@@ -786,3 +788,4 @@ export default function AdminDashboard({ user, setMessage, onNotAdmin }) {
     </div>
   )
 }
+
