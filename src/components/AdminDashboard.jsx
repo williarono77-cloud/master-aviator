@@ -2,16 +2,6 @@ import { useState, useEffect, useCallback } from 'react'
 import { supabase } from '../supabaseClient.js'
 import ThemeToggle from './ThemeToggle.jsx'
 
-// #region agent log
-const _dbg = (payload) => {
-  fetch('http://127.0.0.1:7736/ingest/1e640378-1e92-4e4d-be68-6d3785a8a573', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json', 'X-Debug-Session-Id': '9e3a7a' },
-    body: JSON.stringify({ sessionId: '9e3a7a', ...payload, timestamp: Date.now() }),
-  }).catch(() => {})
-}
-// #endregion
-
 const LEDGER_LIMIT = 50
 
 function formatKes(cents) {
@@ -24,9 +14,6 @@ function formatDate(iso) {
 }
 
 export default function AdminDashboard({ user, setMessage, onNotAdmin }) {
-  // #region agent log
-  try { _dbg({ location: 'AdminDashboard.jsx:mount', message: 'component entered', data: { hasUser: !!user, userId: user?.id?.slice?.(0, 8) }, hypothesisId: 'H1' }) } catch (e) { _dbg({ location: 'AdminDashboard.jsx:mount-err', message: 'mount log failed', data: { err: String(e?.message) }, hypothesisId: 'H1' }) }
-  // #endregion
   const [profileRole, setProfileRole] = useState(null)
   const [guardLoading, setGuardLoading] = useState(true)
   const [withdrawals, setWithdrawals] = useState([])
@@ -87,17 +74,11 @@ export default function AdminDashboard({ user, setMessage, onNotAdmin }) {
   useEffect(() => {
     if (guardLoading) return
     if (!user) {
-      // #region agent log
-      _dbg({ location: 'AdminDashboard.jsx:redirect', message: 'redirect no user', data: {}, hypothesisId: 'H3' })
-      // #endregion
       if (onNotAdmin) onNotAdmin()
       else window.location.replace('/')
       return
     }
     if (profileRole !== 'admin') {
-      // #region agent log
-      _dbg({ location: 'AdminDashboard.jsx:redirect', message: 'redirect not admin', data: { profileRole }, hypothesisId: 'H3' })
-      // #endregion
       if (onNotAdmin) onNotAdmin()
       else window.location.replace('/')
     }
@@ -422,9 +403,6 @@ export default function AdminDashboard({ user, setMessage, onNotAdmin }) {
     }
   }
 
-  // #region agent log
-  try { _dbg({ location: 'AdminDashboard.jsx:guard-check', message: 'before guard return', data: { guardLoading, profileRole, willShowGuard: guardLoading || profileRole !== 'admin' }, hypothesisId: 'H4' }) } catch (e) {}
-  // #endregion
   if (guardLoading || profileRole !== 'admin') {
     return (
       <div className="admin-dashboard">
@@ -436,9 +414,6 @@ export default function AdminDashboard({ user, setMessage, onNotAdmin }) {
     )
   }
 
-  // #region agent log
-  try { _dbg({ location: 'AdminDashboard.jsx:main-render', message: 'rendering main dashboard', data: { withdrawalsLen: withdrawals?.length, depositsLen: deposits?.length }, hypothesisId: 'H1' }) } catch (e) {}
-  // #endregion
   return (
     <div className="admin-dashboard">
       <header className="admin-dashboard__header">
