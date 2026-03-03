@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef } from 'react'
 import { supabase } from '../supabaseClient.js'
+import { clearAuthRole } from '../utils/storage.js'
 
 const MIN_PASSWORD_LENGTH = 6
 
@@ -84,7 +85,9 @@ export default function AuthModal({ isOpen, onClose, onSuccess }) {
       const { data: signInData, error: err } = await supabase.auth.signInWithPassword({ email: email.trim(), password })
       if (err) throw err
       setError(null)
-      
+            
+        // 🔥 FORCE fresh role check every single login (fixes your manual SQL updates)
+        clearAuthRole();
       // Check if user is admin and redirect to admin page
       if (signInData?.user?.id) {
         const { data: profile, error: profileError } = await supabase
