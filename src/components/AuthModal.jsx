@@ -89,12 +89,21 @@ export default function AuthModal({ isOpen, onClose, onSuccess }) {
         // 🔥 FORCE fresh role check every single login (fixes your manual SQL updates)
         clearAuthRole();
       // Check if user is admin and redirect to admin page
-      if (signInData?.user?.id) {
+     /* if (signInData?.user?.id) {
         const { data: profile, error: profileError } = await supabase
           .from('profiles')
           .select('role')
           .eq('id', signInData.user.id)
-          .maybeSingle()
+          .maybeSingle() */
+
+        if (profileError) {
+  console.error('Profile role fetch failed after login', {
+    message: profileError.message,
+    details: profileError.details,
+    hint: profileError.hint,
+    code: profileError.code
+  })
+}
 
         if (profileError) {
           console.error('Profile role fetch failed after login', profileError)
