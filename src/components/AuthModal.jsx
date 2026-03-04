@@ -95,7 +95,6 @@ export default function AuthModal({ isOpen, onClose, onSuccess }) {
           .select('role')
           .eq('id', signInData.user.id)
           .maybeSingle() 
-}
 
         if (profileError) {
           console.error('Profile role fetch failed after login', profileError)
