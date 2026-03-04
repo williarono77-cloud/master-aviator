@@ -1,8 +1,6 @@
 import { useState, useEffect, useCallback } from 'react'
 import { supabase, isSupabaseConfigured } from '../supabaseClient.js'
 import ThemeToggle from './ThemeToggle.jsx'
-import { isSupabaseConfigured } from '../supabaseClient.js'
-import ThemeToggle from './ThemeToggle.jsx'
 
 const LEDGER_LIMIT = 50
 
@@ -850,6 +848,7 @@ export default function AdminDashboard({ user, setMessage, onNotAdmin }) {
     </div>
   )
 }
+
 
 
 
