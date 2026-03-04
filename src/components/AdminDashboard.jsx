@@ -20,7 +20,7 @@ export default function AdminDashboard({ user, setMessage, onNotAdmin }) {
 
 //test lines, to be deleted. 
 
-  if (!supabase.isSupabaseConfigured) {
+  if (!isSupabaseConfigured) {
     return (
       <div className="admin-dashboard" style={{ padding: '2rem', textAlign: 'center' }}>
         <h1 style={{ color: 'var(--accent-red)' }}>Supabase Not Configured</h1>
@@ -850,5 +850,6 @@ export default function AdminDashboard({ user, setMessage, onNotAdmin }) {
     </div>
   )
 }
+
 
 
