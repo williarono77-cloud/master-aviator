@@ -3,12 +3,6 @@ import { createClient } from '@supabase/supabase-js'
 const supabaseUrl = import.meta.env.SUPABASE_URL
 const supabaseAnonKey = import.meta.env.SUPABASE_ANON_KEY
 
-console.log('Supabase config debug:', {
-  url: import.meta.env.SUPABASE_URL,
-  key: import.meta.env.SUPABASE_ANON_KEY ? 'present (hidden)' : 'missing',
-  configured: isSupabaseConfigured
-});
-
 // Flag so the UI can behave differently when Supabase isn't configured yet.
 export const isSupabaseConfigured = Boolean(supabaseUrl && supabaseAnonKey)
 
@@ -18,5 +12,6 @@ const url = isSupabaseConfigured ? supabaseUrl : 'https://placeholder.supabase.c
 const key = isSupabaseConfigured ? supabaseAnonKey : 'placeholder-anon-key'
 
 export const supabase = createClient(url, key)
+
 
 
