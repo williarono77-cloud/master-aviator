@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from 'react'
-import { supabase } from '../supabaseClient.js'
+import { supabase, isSupabaseConfigured } from '../supabaseClient.js'
 import ThemeToggle from './ThemeToggle.jsx'
 
 const LEDGER_LIMIT = 50
@@ -49,29 +49,50 @@ export default function AdminDashboard({ user, setMessage, onNotAdmin }) {
       return
     }
     let cancelled = false
-    supabase
-      .from('profiles')
-      .select('role')
-      .eq('id', user.id)
-      .maybeSingle()
-      .then(({ data, error }) => {
-        if (cancelled) return
-        if (error) {
-          console.error('AdminDashboard: profile role fetch failed', error)
+    if (!isSupabaseConfigured) {
+      setGuardLoading(false)
+      setProfileRole(null)
+      return () => { cancelled = true }
+    }
+    try {
+      supabase
+        .from('profiles')
+        .select('role')
+        .eq('id', user.id)
+        .maybeSingle()
+        .then(({ data, error }) => {
+          if (cancelled) return
+          if (error) {
+            console.error('AdminDashboard: profile role fetch failed', error)
+            setMessage?.({ type: 'error', text: 'Could not verify access.' })
+            setProfileRole(null)
+            return
+          }
+          setProfileRole(data?.role ?? null)
+        })
+        .catch((err) => {
+          if (cancelled) return
+          console.error('AdminDashboard: profile role fetch threw', err)
           setMessage?.({ type: 'error', text: 'Could not verify access.' })
           setProfileRole(null)
-          return
-        }
-        setProfileRole(data?.role ?? null)
-      })
-      .finally(() => {
-        if (!cancelled) setGuardLoading(false)
-      })
+        })
+        .finally(() => {
+          if (!cancelled) setGuardLoading(false)
+        })
+    } catch (err) {
+      console.error('AdminDashboard: profile role fetch threw synchronously', err)
+      if (!cancelled) {
+        setMessage?.({ type: 'error', text: 'Could not verify access.' })
+        setProfileRole(null)
+        setGuardLoading(false)
+      }
+    }
     return () => { cancelled = true }
   }, [user?.id])
 
   // Redirect non-admin
   useEffect(() => {
+    if (!isSupabaseConfigured) return
     if (guardLoading) return
     if (!user) {
       if (onNotAdmin) onNotAdmin()
@@ -197,9 +218,7 @@ export default function AdminDashboard({ user, setMessage, onNotAdmin }) {
     }
   }, [])
 
-  
-
-    const fetchCurrentRound = useCallback(async () => {
+  const fetchCurrentRound = useCallback(async () => {
     setRoundError(null)
     const { data, error } = await supabase.from('current_round').select('*').maybeSingle()
     if (error) {
@@ -207,9 +226,9 @@ export default function AdminDashboard({ user, setMessage, onNotAdmin }) {
       setCurrentRound(null)
       return
     }
-        setCurrentRound(data)
-          }, [])
-      
+    setCurrentRound(data)
+  }, [])
+
   const fetchNextRound = useCallback(async () => {
     setNextRoundError(null)
     const { data, error } = await supabase
@@ -224,7 +243,7 @@ export default function AdminDashboard({ user, setMessage, onNotAdmin }) {
     }
     setNextRound(data)
   }, [])
-  
+
   const handleRefreshAll = useCallback(() => {
     fetchWithdrawals()
     fetchDeposits()
@@ -286,7 +305,7 @@ export default function AdminDashboard({ user, setMessage, onNotAdmin }) {
   }, [currentRound?.round_id, currentRound?.status, currentRound?.state, setMessage, fetchCurrentRound, fetchNextRound, fetchAdminRoundsQueue])
 
   useEffect(() => {
-    if (profileRole !== 'admin') return
+    if (!isSupabaseConfigured || profileRole !== 'admin') return
     fetchWithdrawals()
     fetchDeposits()
     fetchLedger()
@@ -298,7 +317,7 @@ export default function AdminDashboard({ user, setMessage, onNotAdmin }) {
 
   // Realtime: withdrawal_requests and deposits
   useEffect(() => {
-    if (profileRole !== 'admin') return
+    if (!isSupabaseConfigured || profileRole !== 'admin') return
     const channel = supabase
       .channel('admin-updates')
       .on(
@@ -317,7 +336,7 @@ export default function AdminDashboard({ user, setMessage, onNotAdmin }) {
 
   // Realtime: current round and next round (when break loads, tables update; admin sees both)
   useEffect(() => {
-    if (profileRole !== 'admin') return
+    if (!isSupabaseConfigured || profileRole !== 'admin') return
     const channel = supabase
       .channel('admin-round-updates')
       .on('postgres_changes', { event: '*', schema: 'public', table: 'game_rounds' }, () => {
@@ -403,6 +422,19 @@ export default function AdminDashboard({ user, setMessage, onNotAdmin }) {
     } finally {
       setProcessingId(null)
     }
+  }
+
+  if (!isSupabaseConfigured) {
+    return (
+      <div className="admin-dashboard">
+        <div className="admin-dashboard__header">
+          <h1 className="admin-dashboard__title">Admin Dashboard</h1>
+        </div>
+        <div className="admin-dashboard__loading" style={{ textAlign: 'center' }}>
+          Supabase is not configured for the admin dashboard. Check <code>VITE_SUPABASE_URL</code> and <code>VITE_SUPABASE_ANON_KEY</code> in your <code>.env</code> file.
+        </div>
+      </div>
+    )
   }
 
   if (guardLoading || profileRole !== 'admin') {
@@ -788,4 +820,3 @@ export default function AdminDashboard({ user, setMessage, onNotAdmin }) {
     </div>
   )
 }
-
