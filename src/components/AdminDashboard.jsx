@@ -14,6 +14,34 @@ function formatDate(iso) {
 }
 
 export default function AdminDashboard({ user, setMessage, onNotAdmin }) {
+
+
+//test lines, to be deleted. 
+
+  if (!supabase.isSupabaseConfigured) {
+    return (
+      <div className="admin-dashboard" style={{ padding: '2rem', textAlign: 'center' }}>
+        <h1 style={{ color: 'var(--accent-red)' }}>Supabase Not Configured</h1>
+        <p style={{ fontSize: '1.2rem', margin: '1rem 0' }}>
+          The admin dashboard can't load because Supabase is not set up properly.
+        </p>
+        <p style={{ opacity: 0.8 }}>
+          Check that VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY are correct in your .env file.<br />
+          Make sure they match your Supabase project and restart the dev server if needed.
+        </p>
+        <button 
+          onClick={() => window.location.reload()} 
+          style={{ marginTop: '1.5rem', padding: '0.8rem 1.5rem' }}
+          className="admin-dashboard__btn admin-dashboard__btn--secondary"
+        >
+          Refresh Page
+        </button>
+      </div>
+    );
+  }
+
+//test lines, to be deleted. 
+  
   const [profileRole, setProfileRole] = useState(null)
   const [guardLoading, setGuardLoading] = useState(true)
   const [withdrawals, setWithdrawals] = useState([])
@@ -820,3 +848,4 @@ export default function AdminDashboard({ user, setMessage, onNotAdmin }) {
     </div>
   )
 }
+
