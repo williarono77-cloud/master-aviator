@@ -406,8 +406,7 @@ export default function AdminDashboard({ user, setMessage, onNotAdmin }) {
         })
         .subscribe()  // ← chained directly after closing })
 
-return () => supabase.removeChannel(channel)
-    return () => supabase.removeChannel(channel)
+      return () => supabase.removeChannel(channel)
   }, [profileRole, fetchCurrentRound, fetchNextRound, fetchAdminRoundsQueue])
 
   const openConfirm = (action, requestId, label, inputLabel, placeholder, submitLabel, type = 'withdrawal', amount = null) => {
@@ -866,6 +865,7 @@ return () => supabase.removeChannel(channel)
     </div>
   )
 }
+
 
 
 
