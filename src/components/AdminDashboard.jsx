@@ -359,15 +359,13 @@ export default function AdminDashboard({ user, setMessage, onNotAdmin }) {
     return () => supabase.removeChannel(channel)
   }, [profileRole, fetchWithdrawals, fetchDeposits])
 
-  // Realtime: current round and next round (when break loads, tables update; admin sees both)
-    useEffect(() => {
-    if (profileRole !== 'admin') return
-    const channel = supabase
-      .channel('admin-round-updates')
-          .on('postgres_changes', { event: '*', schema: 'public', table: 'game_rounds' }, 
-      // Detect if this change is a round ending / bursting
-       (payload) => {
-    // Detect burst (same as before)
+        // Realtime: current round and next round (when break loads, tables update; admin sees both)
+          useEffect(() => {
+          if (profileRole !== 'admin') return
+      const channel = supabase
+        .channel('admin-round-updates')
+        .on('postgres_changes', { event: '*', schema: 'public', table: 'game_rounds' }, (payload) => {
+          // Detect if this change is a round ending / bursting
           if (payload.eventType === 'UPDATE' || payload.eventType === 'INSERT') {
             const newStatus = payload.new?.status ?? payload.new?.state
             const oldStatus = payload.old?.status ?? payload.old?.state
@@ -377,40 +375,38 @@ export default function AdminDashboard({ user, setMessage, onNotAdmin }) {
                 setJustBurstedRoundId(burstedId)
                 console.log(`Burst detected in realtime: round ${burstedId}`)
       
-                // Optimistic swap: promote nextRound → currentRound immediately
                 if (nextRound) {
                   setOptimisticCurrentRound({
                     ...nextRound,
-                    status: 'live', // assume it starts live
+                    status: 'live',
                     state: 'live',
-                    starts_at: new Date().toISOString(), // approximate
+                    starts_at: new Date().toISOString(),
                   })
                   console.log('Optimistic swap: next round promoted to current')
-                }     
-                  // Show toast to admin when burst is detected
-                    if (setMessage) {
-                      const burstPoint = payload.new.burst_point != null 
-                        ? `${Number(payload.new.burst_point).toFixed(2)}x`
-                        : 'unknown'
-                      setMessage({
-                        type: 'warning',
-                        text: `Round ${burstedId} BURSTED at ${burstPoint} – next round now running`
-                      })
-                    
                 }
       
-                // Auto-clear burst flag after 10s
+                if (setMessage) {
+                  const burstPoint = payload.new.burst_point != null
+                    ? `${Number(payload.new.burst_point).toFixed(2)}x`
+                    : 'unknown'
+                  setMessage({
+                    type: 'warning',
+                    text: `Round ${burstedId} BURSTED at ${burstPoint} – next round now running`
+                  })
+                }
+      
                 setTimeout(() => setJustBurstedRoundId(null), 10000)
               }
             }
           }
       
-          // Always refresh real data in background
           fetchCurrentRound()
           fetchNextRound()
           fetchAdminRoundsQueue()
-        }
-        .subscribe()
+        })
+        .subscribe()  // ← chained directly after closing })
+
+return () => supabase.removeChannel(channel)
     return () => supabase.removeChannel(channel)
   }, [profileRole, fetchCurrentRound, fetchNextRound, fetchAdminRoundsQueue])
 
@@ -870,6 +866,7 @@ export default function AdminDashboard({ user, setMessage, onNotAdmin }) {
     </div>
   )
 }
+
 
 
 
