@@ -35,6 +35,7 @@ export default function AdminDashboard({ user, setMessage, onNotAdmin }) {
           className="admin-dashboard__btn admin-dashboard__btn--secondary"
         >
           Refresh Page
+          
         </button>
       </div>
     );
@@ -202,7 +203,6 @@ export default function AdminDashboard({ user, setMessage, onNotAdmin }) {
       setStats({ totalUsers: null, totalBalanceCents: null })
     }
   }, [])
-
   const fetchAdminRoundsQueue = useCallback(async () => {
     setRoundsQueueError(null)
     setRoundsQueueLoading(true)
@@ -211,33 +211,25 @@ export default function AdminDashboard({ user, setMessage, onNotAdmin }) {
         .from('next_rounds_admin')
         .select('id, round_number, status, burst_point, created_at')
         .order('round_number', { ascending: true })
+      if (error) throw error
 
-      if (error) {
-        throw error
-      }
+      let queue = data ?? []
 
-      const queue = data ?? []
-
-      // Top-up logic: when queue gets low, ask DB to generate and then refetch
+      // Auto-generate if low (target 12) — runs on every load + realtime
       if (queue.length <= 3) {
         const { error: genError } = await supabase.rpc('generate_next_rounds', { p_target: 12 })
-        if (genError) {
-          throw genError
-        }
+        if (genError) throw genError
 
+        // Refetch after generation
         const { data: refillData, error: refillError } = await supabase
           .from('next_rounds_admin')
           .select('id, round_number, status, burst_point, created_at')
           .order('round_number', { ascending: true })
-
-        if (refillError) {
-          throw refillError
-        }
-
-        setRoundsQueueAdmin(refillData ?? [])
-      } else {
-        setRoundsQueueAdmin(queue)
+        if (refillError) throw refillError
+        queue = refillData ?? []
       }
+
+      setRoundsQueueAdmin(queue)
     } catch (e) {
       setRoundsQueueError(e?.message || 'Failed to load rounds queue')
       setRoundsQueueAdmin([])
@@ -246,30 +238,38 @@ export default function AdminDashboard({ user, setMessage, onNotAdmin }) {
     }
   }, [])
 
+  
   const fetchCurrentRound = useCallback(async () => {
     setRoundError(null)
-    const { data, error } = await supabase.from('current_round').select('*').maybeSingle()
-    if (error) {
-      setRoundError(error.message)
+    try {
+      const { data, error } = await supabase
+        .from('current_round')
+        .select('*')
+        .maybeSingle()
+      if (error) throw error
+      setCurrentRound(data)
+    } catch (e) {
+      setRoundError(e?.message || 'Failed to load current round')
       setCurrentRound(null)
-      return
     }
-    setCurrentRound(data)
   }, [])
 
+  
   const fetchNextRound = useCallback(async () => {
     setNextRoundError(null)
-    const { data, error } = await supabase
-      .from('next_rounds_admin')
-      .select('id, round_id, round_number, status, starts_at, burst_point, created_at')
-      .limit(1)
-      .maybeSingle()
-    if (error) {
-      setNextRoundError(error.message)
+    try {
+      const { data, error } = await supabase
+        .from('next_rounds_admin')
+        .select('id, round_id, round_number, status, starts_at, burst_point, created_at')
+        .order('round_number', { ascending: true })
+        .limit(1)
+        .maybeSingle()
+      if (error) throw error
+      setNextRound(data)
+    } catch (e) {
+      setNextRoundError(e?.message || 'Failed to load next round')
       setNextRound(null)
-      return
     }
-    setNextRound(data)
   }, [])
 
   const handleRefreshAll = useCallback(() => {
@@ -363,8 +363,8 @@ export default function AdminDashboard({ user, setMessage, onNotAdmin }) {
   }, [profileRole, fetchWithdrawals, fetchDeposits])
 
   // Realtime: current round and next round (when break loads, tables update; admin sees both)
-  useEffect(() => {
-    if (!isSupabaseConfigured || profileRole !== 'admin') return
+    useEffect(() => {
+    if (profileRole !== 'admin') return
     const channel = supabase
       .channel('admin-round-updates')
       .on('postgres_changes', { event: '*', schema: 'public', table: 'game_rounds' }, () => {
@@ -541,22 +541,10 @@ export default function AdminDashboard({ user, setMessage, onNotAdmin }) {
             {currentRound && (
               <div style={{ display: 'flex', gap: '0.5rem', marginTop: '0.5rem', flexWrap: 'wrap' }}>
                 {(currentRound?.status ?? currentRound?.state) === 'live' && (
-                  <button
-                    type="button"
-                    className="admin-dashboard__btn admin-dashboard__btn--pay"
-                    disabled={roundActionLoading}
-                    onClick={handleEndRound}
-                  >
-                    {roundActionLoading ? 'Processing…' : 'End round'}
-                  </button>
+   
                 )}
                 {(currentRound?.status ?? currentRound?.state) === 'ended' && (
-                  <button
-                    type="button"
-                    className="admin-dashboard__btn admin-dashboard__btn--pay"
-                    disabled={roundActionLoading}
-                    onClick={handleResolveBets}
-                  >
+
                     {roundActionLoading ? 'Resolving…' : 'Resolve bets'}
                   </button>
                 )}
@@ -604,14 +592,7 @@ export default function AdminDashboard({ user, setMessage, onNotAdmin }) {
             flexWrap: 'wrap',
           }}
         >
-          <button
-            type="button"
-            className="admin-dashboard__btn admin-dashboard__btn--secondary"
-            onClick={fetchAdminRoundsQueue}
-            disabled={roundsQueueLoading}
-          >
-            {roundsQueueLoading ? 'Refreshing…' : 'Refresh queue'}
-          </button>
+
           <span style={{ fontSize: '0.75rem', opacity: 0.8 }}>
             Shows the next scheduled rounds. Queue auto top-ups to 12 when low.
           </span>
@@ -848,6 +829,7 @@ export default function AdminDashboard({ user, setMessage, onNotAdmin }) {
     </div>
   )
 }
+
 
 
 
