@@ -364,7 +364,7 @@ export default function AdminDashboard({ user, setMessage, onNotAdmin }) {
     if (profileRole !== 'admin') return
     const channel = supabase
       .channel('admin-round-updates')
-          .on('postgres_changes', { event: '*', schema: 'public', table: 'game_rounds' }, (payload) => {
+          .on('postgres_changes', { event: '*', schema: 'public', table: 'game_rounds' }, 
       // Detect if this change is a round ending / bursting
        (payload) => {
     // Detect burst (same as before)
@@ -410,7 +410,7 @@ export default function AdminDashboard({ user, setMessage, onNotAdmin }) {
           fetchNextRound()
           fetchAdminRoundsQueue()
         }
-      .subscribe()
+        .subscribe()
     return () => supabase.removeChannel(channel)
   }, [profileRole, fetchCurrentRound, fetchNextRound, fetchAdminRoundsQueue])
 
@@ -870,6 +870,7 @@ export default function AdminDashboard({ user, setMessage, onNotAdmin }) {
     </div>
   )
 }
+
 
 
 
