@@ -254,31 +254,54 @@ export default function App() {
   }, [currentRound?.id, currentRound?.status, currentRound?.state]);
 
   // Consume finished round via RPC without exposing future burst points
-  useEffect(() => {
-    if (!isSupabaseConfigured) return;
+ // Auto consume + resolve round when server marks it as ended (full auto-progression)
+useEffect(() => {
+  if (!isSupabaseConfigured) return;
 
-    const roundId = currentRound?.id ?? null;
-    const status = currentRound?.status ?? currentRound?.state ?? null;
+  const roundId = currentRound?.id ?? null;
+  const status = currentRound?.status ?? currentRound?.state ?? null;
 
-    if (!roundId || status !== "ended") return;
-    if (roundId === lastConsumedRoundId || consumingRound) return;
+  if (!roundId || status !== "ended") return;
+  if (roundId === lastConsumedRoundId || consumingRound) return;
 
-    let cancelled = false;
+  let cancelled = false;
 
-    const consume = async () => {
+     const processRoundEnd = async () => {
       setConsumingRound(true);
       try {
-        const { error } = await supabase.rpc("consume_round", { p_round_id: roundId });
-        if (error) {
-          throw error;
+        // Step 1: Consume / close the round
+        const { error: consumeError } = await supabase.rpc("consume_round", { p_round_id: roundId });
+        if (consumeError) {
+          throw new Error(`Consume RPC failed: ${consumeError.message}`);
         }
+        console.log(`Round ${roundId} consumed successfully`);
+
+        // Step 2: Resolve bets and pay winners
+        const { error: resolveError } = await supabase.rpc("resolve_round_bets", { p_round_id: roundId });
+        if (resolveError) {
+          throw new Error(`Resolve RPC failed: ${resolveError.message}`);
+        }
+        console.log(`Round ${roundId} bets resolved successfully`);
 
         if (!cancelled) {
           setLastConsumedRoundId(roundId);
-          // Refresh the public-safe queue; generation is handled by admin / server
-          refreshPublicQueue();
+          refreshPublicQueue(); // triggers realtime for AdminDashboard
+          setMessage({
+            type: "success",
+            text: `Round #${roundId} burst! Winners paid automatically. Next round starting soon.`
+          });
         }
-      } catch {
+      } catch (error) {
+        console.error("Round end processing failed:", error.message || error);
+        let userMsg = "Error settling round (payout may be delayed) – check your balance or contact support.";
+        
+        if (error.message.includes("Consume")) {
+          userMsg = "Failed to close round – game may be stuck. Please wait or refresh.";
+        } else if (error.message.includes("Resolve")) {
+          userMsg = "Failed to pay winners – bets resolved may be delayed. Check wallet soon.";
+        }
+
+        setMessage({ type: "error", text: userMsg });
       } finally {
         if (!cancelled) {
           setConsumingRound(false);
@@ -286,14 +309,37 @@ export default function App() {
       }
     };
 
-    consume();
+  processRoundEnd();
 
-    return () => {
-      cancelled = true;
-    };
-  }, [currentRound?.id, currentRound?.status, currentRound?.state, lastConsumedRoundId, consumingRound, refreshPublicQueue]);
+  return () => {
+    cancelled = true;
+  };
+}, [currentRound?.id, currentRound?.status, currentRound?.state, lastConsumedRoundId, consumingRound, refreshPublicQueue]);
 
 
+  // Client-side safety net: force-end round if stuck in "live" too long
+  useEffect(() => {
+    if (!currentRound || currentRound.status !== "live") return;
+
+    const MAX_ROUND_DURATION_MS = 2 * 60 * 1000; // 2 minutes (120000 ms) - adjustable
+    const timeoutId = setTimeout(() => {
+      if (currentRound?.status === "live") {
+        console.warn(`Round ${currentRound.id} stuck in "live" state for >2 minutes → forcing end as safety`);
+        supabase.rpc("force_end_round", { p_round_id: currentRound.id })
+          .then(({ error }) => {
+            if (error) {
+              console.error("Safety force-end RPC failed:", error.message);
+            } else {
+              console.log(`Safety force-end triggered for round ${currentRound.id}`);
+            }
+          })
+          .catch((err) => console.error("Safety force-end promise error:", err));
+      }
+    }, MAX_ROUND_DURATION_MS);
+
+    return () => clearTimeout(timeoutId);
+  }, [currentRound?.id, currentRound?.status]);
+  
   const balance = useMemo(() => (wallet?.available_cents ?? 0) / 100, [wallet?.available_cents]);
 
   const lastDepositPhone = useMemo(() => (deposits.length > 0 ? deposits[0]?.phone ?? null : null), [deposits]);
@@ -421,10 +467,15 @@ export default function App() {
               Waiting for rounds. Admin must generate rounds in the Admin Dashboard.
             </div>
           )}
-          <GameCard multiplier={currentRound?.burst_point ?? null} state={roundsReady ? currentState : null} />
-
-          <BetPanel panelId="1" side="top" session={session} onBetClick={handleBetClick} disabled={!canBet} />
-          <BetPanel panelId="2" side="bottom" session={session} onBetClick={handleBetClick} disabled={!canBet} />
+          <GameCard state={roundsReady ? currentState : null} />
+            {consumingRound && (
+            <div className="message-banner message-banner--info" role="status" style={{ margin: "1rem", textAlign: "center" }}>
+              Processing round end... Winners being paid. Please wait a moment.
+            </div>
+          )}
+          
+          <BetPanel panelId="1" side="top" session={session} onBetClick={handleBetClick} disabled={!canBet || consumingRound} />
+          <BetPanel panelId="2" side="bottom" session={session} onBetClick={handleBetClick} disabled={!canBet || consumingRound} />
 
           <FeedTabs activeTab={feedTab} onTabChange={setFeedTab} />
           {feedTab === "all" && <AllBetsTable />}
@@ -465,3 +516,4 @@ export default function App() {
     </div>
   );
 }
+
