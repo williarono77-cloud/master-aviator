@@ -42,7 +42,7 @@ export default function App() {
   const [queueLoaded, setQueueLoaded] = useState(false);
   const [currentLiveRoundId, setCurrentLiveRoundId] = useState(null);
   const [lastConsumedRoundId, setLastConsumedRoundId] = useState(null);
-  const [consumingRound, setConsumingRound] = useState(false);
+const [liveMultiplier, setLiveMultiplier] = useState(1.00);
   const [showDashboard, setShowDashboard] = useState(false);
 
   const userId = session?.user?.id ?? null;
@@ -339,7 +339,31 @@ useEffect(() => {
 
     return () => clearTimeout(timeoutId);
   }, [currentRound?.id, currentRound?.status]);
-  
+
+      // Watch live multiplier from GameCard → force burst when it hits server point
+    useEffect(() => {
+      if (!currentRound || currentRound.status !== 'live' || !currentRound.burst_point) return;
+    
+      if (liveMultiplier >= currentRound.burst_point) {
+        console.log(`Client burst detected: ${liveMultiplier.toFixed(2)}x >= ${currentRound.burst_point}x`);
+    
+        // Force-end the round on server
+        supabase.rpc('force_end_round', { p_round_id: currentRound.id })
+          .then(({ error }) => {
+            if (error) {
+              console.error('Force end RPC failed:', error.message);
+              setMessage?.({ type: 'error', text: 'Failed to end round (check console)' });
+            } else {
+              console.log('Client successfully forced round end');
+              setMessage?.({ type: 'success', text: 'Burst detected – round ending!' });
+            }
+          })
+          .catch(err => {
+            console.error('Force end promise error:', err);
+          });
+      }
+    }, [liveMultiplier, currentRound?.id, currentRound?.status, currentRound?.burst_point, setMessage]);
+      
   const balance = useMemo(() => (wallet?.available_cents ?? 0) / 100, [wallet?.available_cents]);
 
   const lastDepositPhone = useMemo(() => (deposits.length > 0 ? deposits[0]?.phone ?? null : null), [deposits]);
@@ -467,7 +491,10 @@ useEffect(() => {
               Waiting for rounds. Admin must generate rounds in the Admin Dashboard.
             </div>
           )}
-          <GameCard state={roundsReady ? currentState : null} />
+            <GameCard 
+              state={roundsReady ? currentState : null}
+              onMultiplierUpdate={setLiveMultiplier}
+            />
             {consumingRound && (
             <div className="message-banner message-banner--info" role="status" style={{ margin: "1rem", textAlign: "center" }}>
               Processing round end... Winners being paid. Please wait a moment.
@@ -516,4 +543,5 @@ useEffect(() => {
     </div>
   );
 }
+
 
