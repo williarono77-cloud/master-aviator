@@ -46,6 +46,7 @@ function useRoundSimulation(enabled) {
       if (stateRef.current === "live") {
         // TODO: Replace with database rules for multiplier calculation
         // For now: exponential growth formula starting from 0.0
+
         const k = 0.4;
         const timeSeconds = elapsed / 1000;
         // Start at 0, grow exponentially: 0 -> 1.0 -> crash point
@@ -56,6 +57,8 @@ function useRoundSimulation(enabled) {
         const cappedMultiplier = Math.min(multiplier, crashAtRef.current);
 
         setSimMultiplier(cappedMultiplier);
+
+        if (onMultiplierUpdate) onMultiplierUpdate(cappedMultiplier);
 
         // Check if we've reached crash point
         if (cappedMultiplier >= crashAtRef.current - 0.001 || progress >= 1) {
@@ -90,9 +93,9 @@ function useRoundSimulation(enabled) {
  * - Multiplier displayed inside two counter-rotating circles
  * - 5-second rest period after each round with blue countdown circumference
  */
-export default function GameCard({ multiplier, state }) {
+export default function GameCard({ state, onMultiplierUpdate }) {
   // Use simulation if no external data provided
-  const useSim = multiplier === null || multiplier === undefined || state === null || state === undefined;
+const useSim = !state || state !== 'live'; // only sim when no real live state
   const sim = useRoundSimulation(useSim);
   
   const actualMultiplier = useSim ? sim.multiplier : multiplier;
@@ -105,6 +108,7 @@ export default function GameCard({ multiplier, state }) {
   const burstTimerRef = useRef(null);
   const prevStateRef = useRef(actualState);
   const roundStateRef = useRef("live");
+const actualMultiplier = useSim ? sim.multiplier : 1.00; // fallback if real prop missing
 
   // Sync ref with state
   useEffect(() => {
