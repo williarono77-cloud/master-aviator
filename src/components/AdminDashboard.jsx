@@ -538,18 +538,7 @@ export default function AdminDashboard({ user, setMessage, onNotAdmin }) {
                 <span className="admin-dashboard__info-value">{currentRound?.burst_point != null ? `${Number(currentRound.burst_point).toFixed(2)}x` : '—'}</span>
               </div>
             </div>
-            {currentRound && (
-              <div style={{ display: 'flex', gap: '0.5rem', marginTop: '0.5rem', flexWrap: 'wrap' }}>
-                {(currentRound?.status ?? currentRound?.state) === 'live' && (
-   
-                )}
-                {(currentRound?.status ?? currentRound?.state) === 'ended' && (
 
-                    {roundActionLoading ? 'Resolving…' : 'Resolve bets'}
-                  </button>
-                )}
-              </div>
-            )}
           </div>
           <div className="admin-dashboard__preview-card">
             <div className="admin-dashboard__card-title" style={{ marginBottom: '0.5rem', fontSize: '0.875rem' }}>Next round (from DB, live when break is loading)</div>
@@ -829,6 +818,7 @@ export default function AdminDashboard({ user, setMessage, onNotAdmin }) {
     </div>
   )
 }
+
 
 
 
