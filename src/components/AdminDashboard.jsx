@@ -64,6 +64,8 @@ export default function AdminDashboard({ user, setMessage, onNotAdmin }) {
   const [roundsQueueError, setRoundsQueueError] = useState(null)
   const [roundsQueueLoading, setRoundsQueueLoading] = useState(false)
   const [roundActionLoading, setRoundActionLoading] = useState(false)
+  const [justBurstedRoundId, setJustBurstedRoundId] = useState(null)
+  const [optimisticCurrentRound, setOptimisticCurrentRound] = useState(null)
 
   const handleLogout = useCallback(async () => {
     await supabase.auth.signOut()
@@ -353,11 +355,6 @@ export default function AdminDashboard({ user, setMessage, onNotAdmin }) {
         { event: '*', schema: 'public', table: 'withdrawal_requests' },
         () => fetchWithdrawals()
       )
-      .on(
-        'postgres_changes',
-        { event: '*', schema: 'public', table: 'deposits' },
-        () => fetchDeposits()
-      )
       .subscribe()
     return () => supabase.removeChannel(channel)
   }, [profileRole, fetchWithdrawals, fetchDeposits])
@@ -367,11 +364,52 @@ export default function AdminDashboard({ user, setMessage, onNotAdmin }) {
     if (profileRole !== 'admin') return
     const channel = supabase
       .channel('admin-round-updates')
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'game_rounds' }, () => {
-        fetchCurrentRound()
-        fetchNextRound()
-        fetchAdminRoundsQueue()
-      })
+          .on('postgres_changes', { event: '*', schema: 'public', table: 'game_rounds' }, (payload) => {
+      // Detect if this change is a round ending / bursting
+       (payload) => {
+    // Detect burst (same as before)
+          if (payload.eventType === 'UPDATE' || payload.eventType === 'INSERT') {
+            const newStatus = payload.new?.status ?? payload.new?.state
+            const oldStatus = payload.old?.status ?? payload.old?.state
+            if (newStatus === 'ended' && oldStatus !== 'ended') {
+              const burstedId = payload.new.id || payload.new.round_id
+              if (burstedId) {
+                setJustBurstedRoundId(burstedId)
+                console.log(`Burst detected in realtime: round ${burstedId}`)
+      
+                // Optimistic swap: promote nextRound → currentRound immediately
+                if (nextRound) {
+                  setOptimisticCurrentRound({
+                    ...nextRound,
+                    status: 'live', // assume it starts live
+                    state: 'live',
+                    starts_at: new Date().toISOString(), // approximate
+                  })
+                  console.log('Optimistic swap: next round promoted to current')
+                }     
+                  // Show toast to admin when burst is detected
+                    if (setMessage) {
+                      const burstPoint = payload.new.burst_point != null 
+                        ? `${Number(payload.new.burst_point).toFixed(2)}x`
+                        : 'unknown'
+                      setMessage({
+                        type: 'warning',
+                        text: `Round ${burstedId} BURSTED at ${burstPoint} – next round now running`
+                      })
+                    
+                }
+      
+                // Auto-clear burst flag after 10s
+                setTimeout(() => setJustBurstedRoundId(null), 10000)
+              }
+            }
+          }
+      
+          // Always refresh real data in background
+          fetchCurrentRound()
+          fetchNextRound()
+          fetchAdminRoundsQueue()
+        }
       .subscribe()
     return () => supabase.removeChannel(channel)
   }, [profileRole, fetchCurrentRound, fetchNextRound, fetchAdminRoundsQueue])
@@ -518,49 +556,57 @@ export default function AdminDashboard({ user, setMessage, onNotAdmin }) {
         {roundError && <p className="text-error admin-dashboard__error">{roundError}</p>}
         {nextRoundError && <p className="text-error admin-dashboard__error">{nextRoundError}</p>}
         <div className="admin-dashboard__next-round">
-          <div className="admin-dashboard__preview-card">
-            <div className="admin-dashboard__card-title" style={{ marginBottom: '0.5rem', fontSize: '0.875rem' }}>Current round (from DB)</div>
-            <div className="admin-dashboard__round-info">
-              <div className="admin-dashboard__info-item">
-                <span className="admin-dashboard__info-label">Round ID</span>
-                <span className="admin-dashboard__info-value">{currentRound?.id ?? currentRound?.round_id ?? '—'}</span>
-              </div>
-              <div className="admin-dashboard__info-item">
-                <span className="admin-dashboard__info-label">Status</span>
-                <span className="admin-dashboard__info-value">{currentRound?.status ?? currentRound?.state ?? '—'}</span>
-              </div>
-              <div className="admin-dashboard__info-item">
-                <span className="admin-dashboard__info-label">Starts at</span>
-                <span className="admin-dashboard__info-value">{currentRound?.starts_at ? formatDate(currentRound.starts_at) : '—'}</span>
-              </div>
-              <div className="admin-dashboard__info-item">
-                <span className="admin-dashboard__info-label">Burst / Result</span>
-                <span className="admin-dashboard__info-value">{currentRound?.burst_point != null ? `${Number(currentRound.burst_point).toFixed(2)}x` : '—'}</span>
-              </div>
-            </div>
-
-          </div>
-          <div className="admin-dashboard__preview-card">
-            <div className="admin-dashboard__card-title" style={{ marginBottom: '0.5rem', fontSize: '0.875rem' }}>Next round (from DB, live when break is loading)</div>
-            <div className="admin-dashboard__round-info">
-              <div className="admin-dashboard__info-item">
-                <span className="admin-dashboard__info-label">Round ID</span>
-                <span className="admin-dashboard__info-value">{nextRound?.id ?? nextRound?.round_id ?? '—'}</span>
-              </div>
-              <div className="admin-dashboard__info-item">
-                <span className="admin-dashboard__info-label">Status</span>
-                <span className="admin-dashboard__info-value">{nextRound?.status ?? '—'}</span>
-              </div>
-              <div className="admin-dashboard__info-item">
-                <span className="admin-dashboard__info-label">Starts at</span>
-                <span className="admin-dashboard__info-value">{nextRound?.starts_at ? formatDate(nextRound.starts_at) : '—'}</span>
-              </div>
-              <div className="admin-dashboard__info-item">
-                <span className="admin-dashboard__info-label">Round #</span>
-                <span className="admin-dashboard__info-value">{nextRound?.round_number ?? '—'}</span>
-              </div>
-            </div>
-          </div>
+        <div 
+          className="admin-dashboard__preview-card"
+          style={{
+            border: justBurstedRoundId && (optimisticCurrentRound?.id || currentRound?.id) === justBurstedRoundId 
+              ? '2px solid var(--accent-red, #ef4444)' 
+              : (optimisticCurrentRound ? '2px solid var(--accent-green, #22c55e)' : '1px solid var(--border-subtle, rgba(255,255,255,0.08))'),
+            background: justBurstedRoundId && (optimisticCurrentRound?.id || currentRound?.id) === justBurstedRoundId 
+              ? 'rgba(239, 68, 68, 0.08)' 
+              : (optimisticCurrentRound ? 'rgba(34, 197, 94, 0.08)' : 'var(--surface-subtle, rgba(15,23,42,0.85))'),
+            transition: 'all 0.3s ease'
+          }}
+        >
+  <div className="admin-dashboard__card-title" style={{ marginBottom: '0.5rem', fontSize: '0.875rem', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+    Current round (from DB)
+    {justBurstedRoundId && (currentRound?.id === justBurstedRoundId || currentRound?.round_id === justBurstedRoundId) && (
+      <span style={{
+        background: 'var(--accent-red, #ef4444)',
+        color: 'white',
+        padding: '0.2rem 0.5rem',
+        borderRadius: '0.25rem',
+        fontSize: '0.7rem',
+        fontWeight: 'bold',
+        textTransform: 'uppercase'
+      }}>
+        BURSTED
+      </span>
+    )}
+  </div>
+  <div className="admin-dashboard__round-info">
+    <div className="admin-dashboard__info-item">
+      <span className="admin-dashboard__info-label">Round ID</span>
+      <span className="admin-dashboard__info-value">{currentRound?.id ?? currentRound?.round_id ?? '—'}</span>
+    </div>
+    <div className="admin-dashboard__info-item">
+      <span className="admin-dashboard__info-label">Status</span>
+      <span className="admin-dashboard__info-value" style={{ color: justBurstedRoundId && (currentRound?.id === justBurstedRoundId || currentRound?.round_id === justBurstedRoundId) ? 'var(--accent-red)' : 'inherit' }}>
+        {currentRound?.status ?? currentRound?.state ?? '—'}
+      </span>
+    </div>
+    <div className="admin-dashboard__info-item">
+      <span className="admin-dashboard__info-label">Starts at</span>
+      <span className="admin-dashboard__info-value">{currentRound?.starts_at ? formatDate(currentRound.starts_at) : '—'}</span>
+    </div>
+    <div className="admin-dashboard__info-item">
+      <span className="admin-dashboard__info-label">Burst / Result</span>
+      <span className="admin-dashboard__info-value" style={{ fontWeight: 'bold', color: justBurstedRoundId && (currentRound?.id === justBurstedRoundId || currentRound?.round_id === justBurstedRoundId) ? 'var(--accent-red)' : 'inherit' }}>
+        {currentRound?.burst_point != null ? `${Number(currentRound.burst_point).toFixed(2)}x` : '—'}
+      </span>
+    </div>
+  </div>
+</div>
           <button type="button" className="admin-dashboard__btn admin-dashboard__btn--secondary" onClick={() => { fetchCurrentRound(); fetchNextRound(); }}>
             Refresh rounds
           </button>
@@ -595,19 +641,25 @@ export default function AdminDashboard({ user, setMessage, onNotAdmin }) {
             ) : (
               roundsQueueAdmin.map((r) => (
                 <div
-                  key={r.id}
-                  style={{
-                    minWidth: '160px',
-                    padding: '0.5rem 0.75rem',
-                    borderRadius: '0.5rem',
-                    border: '1px solid var(--border-subtle, rgba(255,255,255,0.08))',
-                    background: 'var(--surface-subtle, rgba(15,23,42,0.85))',
-                    display: 'flex',
-                    flexDirection: 'column',
-                    gap: '0.25rem',
-                    fontSize: '0.75rem',
-                  }}
-                >
+                    key={r.id}
+                    style={{
+                      minWidth: '160px',
+                      padding: '0.5rem 0.75rem',
+                      borderRadius: '0.5rem',
+                      border: r.round_number === 1 && justBurstedRoundId 
+                        ? '2px solid var(--accent-green, #22c55e)' 
+                        : '1px solid var(--border-subtle, rgba(255,255,255,0.08))',
+                      background: r.round_number === 1 && justBurstedRoundId 
+                        ? 'rgba(34, 197, 94, 0.12)' 
+                        : 'var(--surface-subtle, rgba(15,23,42,0.85))',
+                      display: 'flex',
+                      flexDirection: 'column',
+                      gap: '0.25rem',
+                      fontSize: '0.75rem',
+                      boxShadow: r.round_number === 1 && justBurstedRoundId ? '0 0 10px rgba(34, 197, 94, 0.4)' : 'none',
+                      transition: 'all 0.3s ease'
+                    }}
+                  >
                   <div style={{ fontWeight: 600, fontSize: '0.8rem' }}>Round #{r.round_number ?? '—'}</div>
                   <div style={{ display: 'flex', justifyContent: 'space-between', gap: '0.5rem' }}>
                     <span style={{ opacity: 0.7 }}>Burst</span>
@@ -818,6 +870,7 @@ export default function AdminDashboard({ user, setMessage, onNotAdmin }) {
     </div>
   )
 }
+
 
 
 
