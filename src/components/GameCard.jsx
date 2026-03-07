@@ -98,7 +98,7 @@ export default function GameCard({ state, onMultiplierUpdate }) {
 const useSim = !state || state !== 'live'; // only sim when no real live state
   const sim = useRoundSimulation(useSim);
   
-  const actualMultiplier = useSim ? sim.multiplier : multiplier;
+  const actualMultiplier = useSim ? sim.multiplier : (multiplier ?? 1.00);
   const actualState = useSim ? sim.state : state;
 
   const [roundState, setRoundState] = useState("live"); // 'live' | 'burst' | 'rest'
@@ -108,7 +108,6 @@ const useSim = !state || state !== 'live'; // only sim when no real live state
   const burstTimerRef = useRef(null);
   const prevStateRef = useRef(actualState);
   const roundStateRef = useRef("live");
-const actualMultiplier = useSim ? sim.multiplier : 1.00; // fallback if real prop missing
 
   // Sync ref with state
   useEffect(() => {
