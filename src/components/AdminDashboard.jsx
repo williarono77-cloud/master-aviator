@@ -576,6 +576,7 @@ export default function AdminDashboard({ user, setMessage, onNotAdmin }) {
       </span>
     )}
   </div>
+ </div>
   <div className="admin-dashboard__round-info">
     <div className="admin-dashboard__info-item">
       <span className="admin-dashboard__info-label">Round ID</span>
@@ -908,6 +909,7 @@ export default function AdminDashboard({ user, setMessage, onNotAdmin }) {
     </div>
   )
 }
+
 
 
 
