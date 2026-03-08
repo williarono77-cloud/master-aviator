@@ -42,7 +42,8 @@ export default function App() {
   const [queueLoaded, setQueueLoaded] = useState(false);
   const [currentLiveRoundId, setCurrentLiveRoundId] = useState(null);
   const [lastConsumedRoundId, setLastConsumedRoundId] = useState(null);
-const [liveMultiplier, setLiveMultiplier] = useState(1.00);
+  const [consumingRound, setConsumingRound] = useState(false);
+  const [liveMultiplier, setLiveMultiplier] = useState(1.00);
   const [showDashboard, setShowDashboard] = useState(false);
 
   const userId = session?.user?.id ?? null;
@@ -543,6 +544,7 @@ useEffect(() => {
     </div>
   );
 }
+
 
 
 
