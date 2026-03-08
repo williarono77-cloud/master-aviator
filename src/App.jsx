@@ -284,14 +284,32 @@ useEffect(() => {
         }
         console.log(`Round ${roundId} bets resolved successfully`);
 
-        if (!cancelled) {
-          setLastConsumedRoundId(roundId);
-          refreshPublicQueue(); // triggers realtime for AdminDashboard
-          setMessage({
-            type: "success",
-            text: `Round #${roundId} burst! Winners paid automatically. Next round starting soon.`
-          });
+      if (!cancelled) {
+        setLastConsumedRoundId(roundId);
+        refreshPublicQueue();
+        setMessage({
+          type: "success",
+          text: `Round #${roundId} burst! Winners paid automatically. Next round starting soon.`
+        });
+      
+        // Automatically promote next scheduled round to live (only on success)
+        if (scheduledQueuePublic.length > 1) {
+          const nextScheduled = scheduledQueuePublic[1];
+          const nextId = nextScheduled.id || nextScheduled.round_id;
+          console.log(`Promoting next scheduled round to LIVE: ${nextId}`);
+      
+          supabase.rpc('set_round_live', { p_round_id: nextId })
+            .then(({ error }) => {
+              if (error) {
+                console.error('Failed to promote next round:', error.message);
+                setMessage?.({ type: 'error', text: 'Failed to start next round – refresh or contact support' });
+              } else {
+                console.log(`Next round ${nextId} is now LIVE`);
+              }
+            })
+            .catch(err => console.error('Promotion RPC error:', err));
         }
+      }
       } catch (error) {
         console.error("Round end processing failed:", error.message || error);
         let userMsg = "Error settling round (payout may be delayed) – check your balance or contact support.";
@@ -544,6 +562,7 @@ useEffect(() => {
     </div>
   );
 }
+
 
 
 
