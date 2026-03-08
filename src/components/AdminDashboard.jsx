@@ -406,9 +406,6 @@ export default function AdminDashboard({ user, setMessage, onNotAdmin }) {
         })
         .subscribe()  // ← chained directly after closing })
 
-      return () => supabase.removeChannel(channel)
-  }, [profileRole, fetchCurrentRound, fetchNextRound, fetchAdminRoundsQueue])
-
   const openConfirm = (action, requestId, label, inputLabel, placeholder, submitLabel, type = 'withdrawal', amount = null) => {
     setConfirmConfig({
       action,
@@ -565,7 +562,7 @@ export default function AdminDashboard({ user, setMessage, onNotAdmin }) {
         >
   <div className="admin-dashboard__card-title" style={{ marginBottom: '0.5rem', fontSize: '0.875rem', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
     Current round (from DB)
-    {justBurstedRoundId && (currentRound?.id === justBurstedRoundId || currentRound?.round_id === justBurstedRoundId) && (
+    {justBurstedRoundId && ((optimisticCurrentRound || currentRound)?.id === justBurstedRoundId || (optimisticCurrentRound || currentRound)?.round_id === justBurstedRoundId) && (
       <span style={{
         background: 'var(--accent-red, #ef4444)',
         color: 'white',
@@ -582,26 +579,40 @@ export default function AdminDashboard({ user, setMessage, onNotAdmin }) {
   <div className="admin-dashboard__round-info">
     <div className="admin-dashboard__info-item">
       <span className="admin-dashboard__info-label">Round ID</span>
-      <span className="admin-dashboard__info-value">{currentRound?.id ?? currentRound?.round_id ?? '—'}</span>
+      <span className="admin-dashboard__info-value">
+        {(optimisticCurrentRound || currentRound)?.id ?? (optimisticCurrentRound || currentRound)?.round_id ?? '—'}
+      </span>
     </div>
     <div className="admin-dashboard__info-item">
       <span className="admin-dashboard__info-label">Status</span>
-      <span className="admin-dashboard__info-value" style={{ color: justBurstedRoundId && (currentRound?.id === justBurstedRoundId || currentRound?.round_id === justBurstedRoundId) ? 'var(--accent-red)' : 'inherit' }}>
-        {currentRound?.status ?? currentRound?.state ?? '—'}
+      <span className="admin-dashboard__info-value" style={{
+        color: justBurstedRoundId && ((optimisticCurrentRound || currentRound)?.id === justBurstedRoundId || (optimisticCurrentRound || currentRound)?.round_id === justBurstedRoundId)
+          ? 'var(--accent-red)'
+          : 'inherit'
+      }}>
+        {(optimisticCurrentRound || currentRound)?.status ?? (optimisticCurrentRound || currentRound)?.state ?? '—'}
       </span>
     </div>
     <div className="admin-dashboard__info-item">
       <span className="admin-dashboard__info-label">Starts at</span>
-      <span className="admin-dashboard__info-value">{currentRound?.starts_at ? formatDate(currentRound.starts_at) : '—'}</span>
+      <span className="admin-dashboard__info-value">
+        {(optimisticCurrentRound || currentRound)?.starts_at ? formatDate((optimisticCurrentRound || currentRound).starts_at) : '—'}
+      </span>
     </div>
     <div className="admin-dashboard__info-item">
       <span className="admin-dashboard__info-label">Burst / Result</span>
-      <span className="admin-dashboard__info-value" style={{ fontWeight: 'bold', color: justBurstedRoundId && (currentRound?.id === justBurstedRoundId || currentRound?.round_id === justBurstedRoundId) ? 'var(--accent-red)' : 'inherit' }}>
-        {currentRound?.burst_point != null ? `${Number(currentRound.burst_point).toFixed(2)}x` : '—'}
+      <span className="admin-dashboard__info-value" style={{
+        fontWeight: 'bold',
+        color: justBurstedRoundId && ((optimisticCurrentRound || currentRound)?.id === justBurstedRoundId || (optimisticCurrentRound || currentRound)?.round_id === justBurstedRoundId)
+          ? 'var(--accent-red)'
+          : 'inherit'
+      }}>
+        {(optimisticCurrentRound || currentRound)?.burst_point != null 
+          ? `${Number((optimisticCurrentRound || currentRound).burst_point).toFixed(2)}x` 
+          : '—'}
       </span>
     </div>
   </div>
-</div>
           <button type="button" className="admin-dashboard__btn admin-dashboard__btn--secondary" onClick={() => { fetchCurrentRound(); fetchNextRound(); }}>
             Refresh rounds
           </button>
@@ -636,33 +647,65 @@ export default function AdminDashboard({ user, setMessage, onNotAdmin }) {
             ) : (
               roundsQueueAdmin.map((r) => (
                 <div
-                    key={r.id}
-                    style={{
-                      minWidth: '160px',
-                      padding: '0.5rem 0.75rem',
-                      borderRadius: '0.5rem',
-                      border: r.round_number === 1 && justBurstedRoundId 
-                        ? '2px solid var(--accent-green, #22c55e)' 
+                  key={r.id}
+                  style={{
+                    minWidth: '160px',
+                    padding: '0.5rem 0.75rem',
+                    borderRadius: '0.5rem',
+                    border: r.status === 'ended' || r.status === 'bursted' 
+                      ? '2px solid var(--accent-red, #ef4444)'
+                      : r.status === 'live' || (r.round_number === 1 && justBurstedRoundId)
+                        ? '2px solid var(--accent-green, #22c55e)'
                         : '1px solid var(--border-subtle, rgba(255,255,255,0.08))',
-                      background: r.round_number === 1 && justBurstedRoundId 
-                        ? 'rgba(34, 197, 94, 0.12)' 
+                    background: r.status === 'ended' || r.status === 'bursted'
+                      ? 'rgba(239, 68, 68, 0.12)'
+                      : r.status === 'live' || (r.round_number === 1 && justBurstedRoundId)
+                        ? 'rgba(34, 197, 94, 0.12)'
                         : 'var(--surface-subtle, rgba(15,23,42,0.85))',
-                      display: 'flex',
-                      flexDirection: 'column',
-                      gap: '0.25rem',
-                      fontSize: '0.75rem',
-                      boxShadow: r.round_number === 1 && justBurstedRoundId ? '0 0 10px rgba(34, 197, 94, 0.4)' : 'none',
-                      transition: 'all 0.3s ease'
-                    }}
-                  >
-                  <div style={{ fontWeight: 600, fontSize: '0.8rem' }}>Round #{r.round_number ?? '—'}</div>
+                    display: 'flex',
+                    flexDirection: 'column',
+                    gap: '0.25rem',
+                    fontSize: '0.75rem',
+                    boxShadow: r.status === 'live' || (r.round_number === 1 && justBurstedRoundId) 
+                      ? '0 0 10px rgba(34, 197, 94, 0.4)'
+                      : 'none',
+                    transition: 'all 0.3s ease',
+                    opacity: r.status === 'ended' || r.status === 'bursted' ? 0.7 : 1
+                  }}
+                >
+                  <div style={{ fontWeight: 600, fontSize: '0.8rem', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                    Round #{r.round_number ?? '—'}
+                    {r.status === 'ended' || r.status === 'bursted' ? (
+                      <span style={{
+                        background: 'var(--accent-red, #ef4444)',
+                        color: 'white',
+                        padding: '0.1rem 0.4rem',
+                        borderRadius: '0.25rem',
+                        fontSize: '0.65rem',
+                        fontWeight: 'bold'
+                      }}>
+                        ENDED
+                      </span>
+                    ) : r.status === 'live' || (r.round_number === 1 && justBurstedRoundId) ? (
+                      <span style={{
+                        background: 'var(--accent-green, #22c55e)',
+                        color: 'white',
+                        padding: '0.1rem 0.4rem',
+                        borderRadius: '0.25rem',
+                        fontSize: '0.65rem',
+                        fontWeight: 'bold'
+                      }}>
+                        LIVE
+                      </span>
+                    ) : null}
+                  </div>
                   <div style={{ display: 'flex', justifyContent: 'space-between', gap: '0.5rem' }}>
                     <span style={{ opacity: 0.7 }}>Burst</span>
                     <span>{r.burst_point != null ? `${Number(r.burst_point).toFixed(2)}x` : '—'}</span>
                   </div>
                   <div style={{ display: 'flex', justifyContent: 'space-between', gap: '0.5rem' }}>
                     <span style={{ opacity: 0.7 }}>Status</span>
-                    <span style={{ textTransform: 'uppercase' }}>{r.status ?? '—'}</span>
+                    <span style={{ textTransform: 'uppercase', fontWeight: 'bold' }}>{r.status ?? '—'}</span>
                   </div>
                   <div style={{ opacity: 0.5 }}>
                     {r.created_at ? formatDate(r.created_at) : 'Created: —'}
@@ -865,6 +908,7 @@ export default function AdminDashboard({ user, setMessage, onNotAdmin }) {
     </div>
   )
 }
+
 
 
 
