@@ -470,7 +470,7 @@ useEffect(() => {
 
   return (
     <div className={`app ${fullscreen ? "app--fullscreen" : ""}`}>
-      <Toast message={message} onDismiss={clearMessage} />
+     <Toast message={message} onDismiss={clearMessage} />
       <TopBar onBack={() => {}} fullscreen={fullscreen} onToggleFullscreen={() => setFullscreen((v) => !v)} />
 
       <HeaderRow
@@ -543,5 +543,6 @@ useEffect(() => {
     </div>
   );
 }
+
 
 
