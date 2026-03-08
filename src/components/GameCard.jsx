@@ -24,7 +24,7 @@ function useRoundSimulation(enabled) {
       
       // TODO: Get crash point from database rules
       // For now: random crash between 1.5x and 10x
-      crashAtRef.current = 1.5 + Math.random() * 8.5;
+    crashAtRef.current = props.burst_point || (1.5 + Math.random() * 8.5);
       
       // TODO: Get round duration from database rules
       // For now: random duration between 5-20 seconds
@@ -54,11 +54,14 @@ function useRoundSimulation(enabled) {
         // At t=0: multiplier = 0
         // At t=small: multiplier grows quickly to 1.0+
         const multiplier = (Math.exp(k * timeSeconds) - 1) * 0.8;
+        
         const cappedMultiplier = Math.min(multiplier, crashAtRef.current);
-
         setSimMultiplier(cappedMultiplier);
 
-        if (onMultiplierUpdate) onMultiplierUpdate(cappedMultiplier);
+        // Send live multiplier to App.jsx every frame
+        if (onMultiplierUpdate) {
+          onMultiplierUpdate(cappedMultiplier);
+        }
 
         // Check if we've reached crash point
         if (cappedMultiplier >= crashAtRef.current - 0.001 || progress >= 1) {
@@ -93,12 +96,12 @@ function useRoundSimulation(enabled) {
  * - Multiplier displayed inside two counter-rotating circles
  * - 5-second rest period after each round with blue countdown circumference
  */
-export default function GameCard({ state, onMultiplierUpdate }) {
+  export default function GameCard({ state, onMultiplierUpdate }) {
   // Use simulation if no external data provided
-const useSim = !state || state !== 'live'; // only sim when no real live state
+  const useSim = !state || state !== 'live'; // only sim when no real live state
   const sim = useRoundSimulation(useSim);
   
-  const actualMultiplier = useSim ? sim.multiplier : (multiplier ?? 1.00);
+const actualMultiplier = useSim ? sim.multiplier : (multiplier ?? 1.00);
   const actualState = useSim ? sim.state : state;
 
   const [roundState, setRoundState] = useState("live"); // 'live' | 'burst' | 'rest'
