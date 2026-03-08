@@ -40,7 +40,6 @@ export default function App() {
   const [deposits, setDeposits] = useState([]);
   const [scheduledQueuePublic, setScheduledQueuePublic] = useState([]);
   const [queueLoaded, setQueueLoaded] = useState(false);
-  const [currentLiveRoundId, setCurrentLiveRoundId] = useState(null);
   const [lastConsumedRoundId, setLastConsumedRoundId] = useState(null);
   const [consumingRound, setConsumingRound] = useState(false);
   const [liveMultiplier, setLiveMultiplier] = useState(1.00);
@@ -291,13 +290,13 @@ useEffect(() => {
           type: "success",
           text: `Round #${roundId} burst! Winners paid automatically. Next round starting soon.`
         });
-      
+
         // Automatically promote next scheduled round to live (only on success)
         if (scheduledQueuePublic.length > 1) {
           const nextScheduled = scheduledQueuePublic[1];
           const nextId = nextScheduled.id || nextScheduled.round_id;
           console.log(`Promoting next scheduled round to LIVE: ${nextId}`);
-      
+
           supabase.rpc('set_round_live', { p_round_id: nextId })
             .then(({ error }) => {
               if (error) {
@@ -359,30 +358,31 @@ useEffect(() => {
     return () => clearTimeout(timeoutId);
   }, [currentRound?.id, currentRound?.status]);
 
-      // Watch live multiplier from GameCard → force burst when it hits server point
-    useEffect(() => {
-      if (!currentRound || currentRound.status !== 'live' || !currentRound.burst_point) return;
-    
-      if (liveMultiplier >= currentRound.burst_point) {
-        console.log(`Client burst detected: ${liveMultiplier.toFixed(2)}x >= ${currentRound.burst_point}x`);
-    
-        // Force-end the round on server
-        supabase.rpc('force_end_round', { p_round_id: currentRound.id })
-          .then(({ error }) => {
-            if (error) {
-              console.error('Force end RPC failed:', error.message);
-              setMessage?.({ type: 'error', text: 'Failed to end round (check console)' });
-            } else {
-              console.log('Client successfully forced round end');
-              setMessage?.({ type: 'success', text: 'Burst detected – round ending!' });
-            }
-          })
-          .catch(err => {
-            console.error('Force end promise error:', err);
-          });
-      }
-    }, [liveMultiplier, currentRound?.id, currentRound?.status, currentRound?.burst_point, setMessage]);
+  // Client-side burst detection: watch live multiplier from GameCard
+      useEffect(() => {
+        if (!currentRound || currentRound.status !== 'live') return;
       
+        const burstPoint = currentRound.burst_point ?? 100; // fallback if not exposed (very high to avoid false burst)
+      
+        if (liveMultiplier >= burstPoint) {
+          console.log(`Client burst detected: ${liveMultiplier.toFixed(2)}x >= ${burstPoint}x (server point: ${currentRound.burst_point ?? 'hidden'})`);
+      
+          supabase.rpc('force_end_round', { p_round_id: currentRound.id })
+            .then(({ error }) => {
+              if (error) {
+                console.error('Force end RPC failed:', error.message);
+                setMessage?.({ type: 'error', text: 'Failed to end round – retrying...' });
+              } else {
+                console.log('Client successfully forced round end');
+                setMessage?.({ type: 'success', text: 'Burst detected – round ending!' });
+              }
+            })
+            .catch(err => {
+              console.error('Force end promise error:', err);
+            });
+        }
+      }, [liveMultiplier, currentRound?.id, currentRound?.status, currentRound?.burst_point, setMessage]);     
+       
   const balance = useMemo(() => (wallet?.available_cents ?? 0) / 100, [wallet?.available_cents]);
 
   const lastDepositPhone = useMemo(() => (deposits.length > 0 ? deposits[0]?.phone ?? null : null), [deposits]);
@@ -510,8 +510,9 @@ useEffect(() => {
               Waiting for rounds. Admin must generate rounds in the Admin Dashboard.
             </div>
           )}
-            <GameCard 
+            <GameCard
               state={roundsReady ? currentState : null}
+              multiplier={liveMultiplier}
               onMultiplierUpdate={setLiveMultiplier}
             />
             {consumingRound && (
@@ -562,6 +563,7 @@ useEffect(() => {
     </div>
   );
 }
+
 
 
 
