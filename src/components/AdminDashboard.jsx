@@ -207,7 +207,7 @@ export default function AdminDashboard({ user, setMessage, onNotAdmin }) {
     try {
       const { data, error } = await supabase
         .from('next_rounds_admin')
-        .select('id, round_number, burst_point')
+        .select('id, round_id, round_number, burst_point')
         .order('round_number', { ascending: true })
       if (error) throw error
 
@@ -234,7 +234,7 @@ export default function AdminDashboard({ user, setMessage, onNotAdmin }) {
 
           const { data, error } = await supabase
             .from('next_rounds_admin')
-            .select('id, round_number, burst_point')
+            .select('id, round_id, round_number, burst_point')
             .order('round_number', { ascending: true })
           if (error) throw error
 
@@ -321,7 +321,7 @@ export default function AdminDashboard({ user, setMessage, onNotAdmin }) {
                   if (genError) throw genError
                   const { data, error } = await supabase
                     .from('game_rounds')
-                    .select('id, round_number, burst_point')
+                    .select('id, round_id, round_number, burst_point')
                     .gt('round_number', maxNumber)
                     .order('round_number', { ascending: true })
                   if (error) throw error
