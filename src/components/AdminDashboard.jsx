@@ -200,6 +200,7 @@ export default function AdminDashboard({ user, setMessage, onNotAdmin }) {
       setStats({ totalUsers: null, totalBalanceCents: null })
     }
   }, [])
+
   const fetchAdminRoundsQueue = useCallback(async () => {
     setRoundsQueueError(null)
     setRoundsQueueLoading(true)
@@ -220,6 +221,41 @@ export default function AdminDashboard({ user, setMessage, onNotAdmin }) {
       setRoundsQueueLoading(false)
     }
   }, [])
+
+  const respondToNeedNewRounds = useCallback(
+    async (channel) => {
+      if (!isSupabaseConfigured) return
+      try {
+        let queue = roundsQueueAdmin
+
+        if (!Array.isArray(queue) || queue.length < 12) {
+          const { error: genError } = await supabase.rpc('generate_next_rounds', { p_target: 12 })
+          if (genError) throw genError
+
+          const { data, error } = await supabase
+            .from('next_rounds_admin')
+            .select('id, round_number, burst_point')
+            .order('round_number', { ascending: true })
+          if (error) throw error
+
+          queue = data ?? []
+          setRoundsQueueAdmin(queue)
+        }
+
+        channel.send({
+          type: 'broadcast',
+          event: 'rounds_update',
+          payload: {
+            rounds: (queue ?? []).slice(0, 12),
+          },
+        })
+      } catch (e) {
+        console.error('AdminDashboard: failed to respond to need_new_rounds', e)
+        setRoundsQueueError(e?.message || 'Failed to refresh rounds')
+      }
+    },
+    [roundsQueueAdmin]
+  )
 
   const handleRefreshAll = useCallback(() => {
     fetchWithdrawals()
@@ -300,10 +336,14 @@ export default function AdminDashboard({ user, setMessage, onNotAdmin }) {
           })
         }
       })
+      .on('broadcast', { event: 'need_new_rounds' }, () => {
+        // ROUNDS NEVER STOP – FORCED REFRESH IMPLEMENTED
+        respondToNeedNewRounds(channel)
+      })
       .subscribe()
 
     return () => supabase.removeChannel(channel)
-  }, [profileRole])
+  }, [profileRole, respondToNeedNewRounds])
 
   const openConfirm = (action, requestId, label, inputLabel, placeholder, submitLabel, type = 'withdrawal', amount = null) => {
     setConfirmConfig({
