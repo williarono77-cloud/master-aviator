@@ -56,16 +56,11 @@ export default function AdminDashboard({ user, setMessage, onNotAdmin }) {
   const [confirmOpen, setConfirmOpen] = useState(false)
   const [confirmConfig, setConfirmConfig] = useState(null)
   const [stats, setStats] = useState({ totalUsers: null, totalBalanceCents: null })
-  const [currentRound, setCurrentRound] = useState(null)
-  const [roundError, setRoundError] = useState(null)
-  const [nextRound, setNextRound] = useState(null)
-  const [nextRoundError, setNextRoundError] = useState(null)
   const [roundsQueueAdmin, setRoundsQueueAdmin] = useState([])
   const [roundsQueueError, setRoundsQueueError] = useState(null)
   const [roundsQueueLoading, setRoundsQueueLoading] = useState(false)
-  const [roundActionLoading, setRoundActionLoading] = useState(false)
-  const [justBurstedRoundId, setJustBurstedRoundId] = useState(null)
-  const [optimisticCurrentRound, setOptimisticCurrentRound] = useState(null)
+  const [liveRoundNumber, setLiveRoundNumber] = useState(null)
+  const [recentBursted, setRecentBursted] = useState([])
 
   const handleLogout = useCallback(async () => {
     await supabase.auth.signOut()
@@ -211,25 +206,11 @@ export default function AdminDashboard({ user, setMessage, onNotAdmin }) {
     try {
       const { data, error } = await supabase
         .from('next_rounds_admin')
-        .select('id, round_number, status, burst_point, created_at')
+        .select('id, round_number, burst_point')
         .order('round_number', { ascending: true })
       if (error) throw error
 
-      let queue = data ?? []
-
-      // Auto-generate if low (target 12) — runs on every load + realtime
-      if (queue.length <= 3) {
-        const { error: genError } = await supabase.rpc('generate_next_rounds', { p_target: 12 })
-        if (genError) throw genError
-
-        // Refetch after generation
-        const { data: refillData, error: refillError } = await supabase
-          .from('next_rounds_admin')
-          .select('id, round_number, status, burst_point, created_at')
-          .order('round_number', { ascending: true })
-        if (refillError) throw refillError
-        queue = refillData ?? []
-      }
+      const queue = data ?? []
 
       setRoundsQueueAdmin(queue)
     } catch (e) {
@@ -240,99 +221,13 @@ export default function AdminDashboard({ user, setMessage, onNotAdmin }) {
     }
   }, [])
 
-  
-  const fetchCurrentRound = useCallback(async () => {
-    setRoundError(null)
-    try {
-      const { data, error } = await supabase
-        .from('current_round')
-        .select('*')
-        .maybeSingle()
-      if (error) throw error
-      setCurrentRound(data)
-    } catch (e) {
-      setRoundError(e?.message || 'Failed to load current round')
-      setCurrentRound(null)
-    }
-  }, [])
-
-  
-  const fetchNextRound = useCallback(async () => {
-    setNextRoundError(null)
-    try {
-      const { data, error } = await supabase
-        .from('next_rounds_admin')
-        .select('id, round_id, round_number, status, starts_at, burst_point, created_at')
-        .order('round_number', { ascending: true })
-        .limit(1)
-        .maybeSingle()
-      if (error) throw error
-      setNextRound(data)
-    } catch (e) {
-      setNextRoundError(e?.message || 'Failed to load next round')
-      setNextRound(null)
-    }
-  }, [])
-
   const handleRefreshAll = useCallback(() => {
     fetchWithdrawals()
     fetchDeposits()
     fetchLedger()
     fetchStats()
-    fetchCurrentRound()
-    fetchNextRound()
     fetchAdminRoundsQueue()
-  }, [fetchWithdrawals, fetchDeposits, fetchLedger, fetchStats, fetchCurrentRound, fetchNextRound, fetchAdminRoundsQueue])
-
-  const handleEndRound = useCallback(async () => {
-    const roundId = currentRound?.id
-    if (!roundId) return
-    const status = currentRound?.status ?? currentRound?.state
-    if (status !== 'live') {
-      setMessage?.({ type: 'error', text: 'Current round is not live.' })
-      return
-    }
-    setRoundActionLoading(true)
-    setRoundError(null)
-    try {
-      const { error } = await supabase.rpc('admin_end_round', { p_round_id: roundId })
-      if (error) throw error
-      setMessage?.({ type: 'success', text: 'Round ended.' })
-      fetchCurrentRound()
-      fetchNextRound()
-      fetchAdminRoundsQueue()
-    } catch (e) {
-      setRoundError(e?.message ?? 'Failed to end round')
-      setMessage?.({ type: 'error', text: e?.message ?? 'Failed to end round' })
-    } finally {
-      setRoundActionLoading(false)
-    }
-  }, [currentRound?.id, currentRound?.status, currentRound?.state, setMessage, fetchCurrentRound, fetchNextRound, fetchAdminRoundsQueue])
-
-  const handleResolveBets = useCallback(async () => {
-    const roundIdText = currentRound?.round_id
-    if (!roundIdText) return
-    const status = currentRound?.status ?? currentRound?.state
-    if (status !== 'ended') {
-      setMessage?.({ type: 'error', text: 'Round must be ended before resolving bets.' })
-      return
-    }
-    setRoundActionLoading(true)
-    setRoundError(null)
-    try {
-      const { data, error } = await supabase.rpc('resolve_round_bets', { p_round_id: roundIdText })
-      if (error) throw error
-      setMessage?.({ type: 'success', text: `Resolved ${data ?? 0} bet(s).` })
-      fetchCurrentRound()
-      fetchNextRound()
-      fetchAdminRoundsQueue()
-    } catch (e) {
-      setRoundError(e?.message ?? 'Failed to resolve bets')
-      setMessage?.({ type: 'error', text: e?.message ?? 'Failed to resolve bets' })
-    } finally {
-      setRoundActionLoading(false)
-    }
-  }, [currentRound?.round_id, currentRound?.status, currentRound?.state, setMessage, fetchCurrentRound, fetchNextRound, fetchAdminRoundsQueue])
+  }, [fetchWithdrawals, fetchDeposits, fetchLedger, fetchStats, fetchAdminRoundsQueue])
 
   useEffect(() => {
     if (!isSupabaseConfigured || profileRole !== 'admin') return
@@ -340,10 +235,8 @@ export default function AdminDashboard({ user, setMessage, onNotAdmin }) {
     fetchDeposits()
     fetchLedger()
     fetchStats()
-    fetchCurrentRound()
-    fetchNextRound()
     fetchAdminRoundsQueue()
-  }, [profileRole, fetchWithdrawals, fetchDeposits, fetchLedger, fetchStats, fetchCurrentRound, fetchNextRound, fetchAdminRoundsQueue])
+  }, [profileRole, fetchWithdrawals, fetchDeposits, fetchLedger, fetchStats, fetchAdminRoundsQueue])
 
   // Realtime: withdrawal_requests and deposits
   useEffect(() => {
@@ -359,52 +252,58 @@ export default function AdminDashboard({ user, setMessage, onNotAdmin }) {
     return () => supabase.removeChannel(channel)
   }, [profileRole, fetchWithdrawals, fetchDeposits])
 
-        // Realtime: current round and next round (when break loads, tables update; admin sees both)
-          useEffect(() => {
-          if (profileRole !== 'admin') return
-      const channel = supabase
-        .channel('admin-round-updates')
-        .on('postgres_changes', { event: '*', schema: 'public', table: 'game_rounds' }, (payload) => {
-          // Detect if this change is a round ending / bursting
-          if (payload.eventType === 'UPDATE' || payload.eventType === 'INSERT') {
-            const newStatus = payload.new?.status ?? payload.new?.state
-            const oldStatus = payload.old?.status ?? payload.old?.state
-            if (newStatus === 'ended' && oldStatus !== 'ended') {
-              const burstedId = payload.new.id || payload.new.round_id
-              if (burstedId) {
-                setJustBurstedRoundId(burstedId)
-                console.log(`Burst detected in realtime: round ${burstedId}`)
-      
-                if (nextRound) {
-                  setOptimisticCurrentRound({
-                    ...nextRound,
-                    status: 'live',
-                    state: 'live',
-                    starts_at: new Date().toISOString(),
-                  })
-                  console.log('Optimistic swap: next round promoted to current')
+  // Realtime: round sync from user page (live / bursted events)
+  useEffect(() => {
+    if (!isSupabaseConfigured || profileRole !== 'admin') return
+    const channel = supabase
+      .channel('round-sync')
+      .on('broadcast', { event: 'round_state' }, (payload) => {
+        const p = payload?.payload
+        if (!p) return
+        const rn = p.round_number ?? null
+        const state = p.state
+
+        if (state === 'live') {
+          setLiveRoundNumber(rn)
+        } else if (state === 'bursted' && rn != null) {
+          setRecentBursted((prev) => {
+            const next = [...prev, rn]
+            // keep last 3 bursted
+            return next.slice(-3)
+          })
+          setRoundsQueueAdmin((prev) => {
+            const updated = prev.filter((r) => r.round_number !== rn)
+            // When remaining scheduled rounds drop to 3 or less, top up by generating 12 more
+            if (updated.length <= 3) {
+              ;(async () => {
+                try {
+                  const maxNumber = updated.reduce(
+                    (max, r) => (r.round_number != null && r.round_number > max ? r.round_number : max),
+                    0
+                  )
+                  const { error: genError } = await supabase.rpc('generate_next_rounds', { p_target: 12 })
+                  if (genError) throw genError
+                  const { data, error } = await supabase
+                    .from('game_rounds')
+                    .select('id, round_number, burst_point')
+                    .gt('round_number', maxNumber)
+                    .order('round_number', { ascending: true })
+                  if (error) throw error
+                  const newOnes = data ?? []
+                  setRoundsQueueAdmin((current) => [...current, ...newOnes])
+                } catch (e) {
+                  setRoundsQueueError(e?.message || 'Failed to top up rounds')
                 }
-      
-                if (setMessage) {
-                  const burstPoint = payload.new.burst_point != null
-                    ? `${Number(payload.new.burst_point).toFixed(2)}x`
-                    : 'unknown'
-                  setMessage({
-                    type: 'warning',
-                    text: `Round ${burstedId} BURSTED at ${burstPoint} – next round now running`
-                  })
-                }
-      
-                setTimeout(() => setJustBurstedRoundId(null), 10000)
-              }
+              })()
             }
-          }
-      
-          fetchCurrentRound()
-          fetchNextRound()
-          fetchAdminRoundsQueue()
-        })
-        .subscribe()  // ← chained directly after closing })
+            return updated
+          })
+        }
+      })
+      .subscribe()
+
+    return () => supabase.removeChannel(channel)
+  }, [profileRole])
 
   const openConfirm = (action, requestId, label, inputLabel, placeholder, submitLabel, type = 'withdrawal', amount = null) => {
     setConfirmConfig({
@@ -542,81 +441,32 @@ export default function AdminDashboard({ user, setMessage, onNotAdmin }) {
         </div>
       </section>
 
-      {/* Next round / Current round */}
+      {/* Live round from user page */}
       <section className="admin-dashboard__card admin-dashboard__card--wide" style={{ marginBottom: '1.5rem' }}>
-        <h3 className="admin-dashboard__card-title">Current round / Next round</h3>
-        {roundError && <p className="text-error admin-dashboard__error">{roundError}</p>}
-        {nextRoundError && <p className="text-error admin-dashboard__error">{nextRoundError}</p>}
+        <h3 className="admin-dashboard__card-title">Live round (from user page)</h3>
         <div className="admin-dashboard__next-round">
-        <div 
-          className="admin-dashboard__preview-card"
-          style={{
-            border: justBurstedRoundId && (optimisticCurrentRound?.id || currentRound?.id) === justBurstedRoundId 
-              ? '2px solid var(--accent-red, #ef4444)' 
-              : (optimisticCurrentRound ? '2px solid var(--accent-green, #22c55e)' : '1px solid var(--border-subtle, rgba(255,255,255,0.08))'),
-            background: justBurstedRoundId && (optimisticCurrentRound?.id || currentRound?.id) === justBurstedRoundId 
-              ? 'rgba(239, 68, 68, 0.08)' 
-              : (optimisticCurrentRound ? 'rgba(34, 197, 94, 0.08)' : 'var(--surface-subtle, rgba(15,23,42,0.85))'),
-            transition: 'all 0.3s ease'
-          }}
-        >
-  <div className="admin-dashboard__card-title" style={{ marginBottom: '0.5rem', fontSize: '0.875rem', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-    Current round (from DB)
-    {justBurstedRoundId && ((optimisticCurrentRound || currentRound)?.id === justBurstedRoundId || (optimisticCurrentRound || currentRound)?.round_id === justBurstedRoundId) && (
-      <span style={{
-        background: 'var(--accent-red, #ef4444)',
-        color: 'white',
-        padding: '0.2rem 0.5rem',
-        borderRadius: '0.25rem',
-        fontSize: '0.7rem',
-        fontWeight: 'bold',
-        textTransform: 'uppercase'
-      }}>
-        BURSTED
-      </span>
-    )}
-  </div>
- </div>
-  <div className="admin-dashboard__round-info">
-    <div className="admin-dashboard__info-item">
-      <span className="admin-dashboard__info-label">Round ID</span>
-      <span className="admin-dashboard__info-value">
-        {(optimisticCurrentRound || currentRound)?.id ?? (optimisticCurrentRound || currentRound)?.round_id ?? '—'}
-      </span>
-    </div>
-    <div className="admin-dashboard__info-item">
-      <span className="admin-dashboard__info-label">Status</span>
-      <span className="admin-dashboard__info-value" style={{
-        color: justBurstedRoundId && ((optimisticCurrentRound || currentRound)?.id === justBurstedRoundId || (optimisticCurrentRound || currentRound)?.round_id === justBurstedRoundId)
-          ? 'var(--accent-red)'
-          : 'inherit'
-      }}>
-        {(optimisticCurrentRound || currentRound)?.status ?? (optimisticCurrentRound || currentRound)?.state ?? '—'}
-      </span>
-    </div>
-    <div className="admin-dashboard__info-item">
-      <span className="admin-dashboard__info-label">Starts at</span>
-      <span className="admin-dashboard__info-value">
-        {(optimisticCurrentRound || currentRound)?.starts_at ? formatDate((optimisticCurrentRound || currentRound).starts_at) : '—'}
-      </span>
-    </div>
-    <div className="admin-dashboard__info-item">
-      <span className="admin-dashboard__info-label">Burst / Result</span>
-      <span className="admin-dashboard__info-value" style={{
-        fontWeight: 'bold',
-        color: justBurstedRoundId && ((optimisticCurrentRound || currentRound)?.id === justBurstedRoundId || (optimisticCurrentRound || currentRound)?.round_id === justBurstedRoundId)
-          ? 'var(--accent-red)'
-          : 'inherit'
-      }}>
-        {(optimisticCurrentRound || currentRound)?.burst_point != null 
-          ? `${Number((optimisticCurrentRound || currentRound).burst_point).toFixed(2)}x` 
-          : '—'}
-      </span>
-    </div>
-  </div>
-          <button type="button" className="admin-dashboard__btn admin-dashboard__btn--secondary" onClick={() => { fetchCurrentRound(); fetchNextRound(); }}>
-            Refresh rounds
-          </button>
+          <div
+            className="admin-dashboard__preview-card"
+            style={{
+              padding: '0.75rem 1rem',
+              borderRadius: '0.5rem',
+              border: '1px solid var(--border-subtle, rgba(255,255,255,0.12))',
+              background: 'var(--surface-subtle, rgba(15,23,42,0.9))',
+              display: 'flex',
+              flexDirection: 'column',
+              gap: '0.4rem',
+              fontSize: '0.8rem',
+            }}
+          >
+            <div style={{ fontWeight: 600 }}>
+              {liveRoundNumber != null ? `Round #${liveRoundNumber}` : 'No live round'}
+            </div>
+            {liveRoundNumber != null && (
+              <div style={{ opacity: 0.8 }}>
+                Tracking via realtime from user page. Bursted rounds will drop from the queue automatically.
+              </div>
+            )}
+          </div>
         </div>
       </section>
 
@@ -650,66 +500,21 @@ export default function AdminDashboard({ user, setMessage, onNotAdmin }) {
                 <div
                   key={r.id}
                   style={{
-                    minWidth: '160px',
+                    minWidth: '140px',
                     padding: '0.5rem 0.75rem',
                     borderRadius: '0.5rem',
-                    border: r.status === 'ended' || r.status === 'bursted' 
-                      ? '2px solid var(--accent-red, #ef4444)'
-                      : r.status === 'live' || (r.round_number === 1 && justBurstedRoundId)
-                        ? '2px solid var(--accent-green, #22c55e)'
-                        : '1px solid var(--border-subtle, rgba(255,255,255,0.08))',
-                    background: r.status === 'ended' || r.status === 'bursted'
-                      ? 'rgba(239, 68, 68, 0.12)'
-                      : r.status === 'live' || (r.round_number === 1 && justBurstedRoundId)
-                        ? 'rgba(34, 197, 94, 0.12)'
-                        : 'var(--surface-subtle, rgba(15,23,42,0.85))',
+                    border: '1px solid var(--border-subtle, rgba(255,255,255,0.08))',
+                    background: 'var(--surface-subtle, rgba(15,23,42,0.85))',
                     display: 'flex',
                     flexDirection: 'column',
                     gap: '0.25rem',
                     fontSize: '0.75rem',
-                    boxShadow: r.status === 'live' || (r.round_number === 1 && justBurstedRoundId) 
-                      ? '0 0 10px rgba(34, 197, 94, 0.4)'
-                      : 'none',
-                    transition: 'all 0.3s ease',
-                    opacity: r.status === 'ended' || r.status === 'bursted' ? 0.7 : 1
                   }}
                 >
-                  <div style={{ fontWeight: 600, fontSize: '0.8rem', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-                    Round #{r.round_number ?? '—'}
-                    {r.status === 'ended' || r.status === 'bursted' ? (
-                      <span style={{
-                        background: 'var(--accent-red, #ef4444)',
-                        color: 'white',
-                        padding: '0.1rem 0.4rem',
-                        borderRadius: '0.25rem',
-                        fontSize: '0.65rem',
-                        fontWeight: 'bold'
-                      }}>
-                        ENDED
-                      </span>
-                    ) : r.status === 'live' || (r.round_number === 1 && justBurstedRoundId) ? (
-                      <span style={{
-                        background: 'var(--accent-green, #22c55e)',
-                        color: 'white',
-                        padding: '0.1rem 0.4rem',
-                        borderRadius: '0.25rem',
-                        fontSize: '0.65rem',
-                        fontWeight: 'bold'
-                      }}>
-                        LIVE
-                      </span>
-                    ) : null}
-                  </div>
+                  <div style={{ fontWeight: 600, fontSize: '0.8rem' }}>Round #{r.round_number ?? '—'}</div>
                   <div style={{ display: 'flex', justifyContent: 'space-between', gap: '0.5rem' }}>
                     <span style={{ opacity: 0.7 }}>Burst</span>
                     <span>{r.burst_point != null ? `${Number(r.burst_point).toFixed(2)}x` : '—'}</span>
-                  </div>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', gap: '0.5rem' }}>
-                    <span style={{ opacity: 0.7 }}>Status</span>
-                    <span style={{ textTransform: 'uppercase', fontWeight: 'bold' }}>{r.status ?? '—'}</span>
-                  </div>
-                  <div style={{ opacity: 0.5 }}>
-                    {r.created_at ? formatDate(r.created_at) : 'Created: —'}
                   </div>
                 </div>
               ))
@@ -909,8 +714,6 @@ export default function AdminDashboard({ user, setMessage, onNotAdmin }) {
     </div>
   )
 }
-
-
 
 
 
