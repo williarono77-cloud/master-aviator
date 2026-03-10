@@ -97,7 +97,12 @@ export default function App() {
     try {
       const { data, error } = await supabase.rpc("get_next_rounds_public");
       if (error) throw error;
-      setRoundsQueue(data ?? []);
+      const list = Array.isArray(data) ? data : [];
+      const normalized = list.map((r) => ({
+        ...r,
+        round_id: r.round_id ?? (r.id != null ? String(r.id) : null),
+      }));
+      setRoundsQueue(normalized);
       setCurrentIndex(0);
     } catch {
       setRoundsQueue([]);
@@ -124,13 +129,16 @@ export default function App() {
 
         const { data, error } = await supabase
           .from("game_rounds")
-          .select("id, round_number, burst_point")
+          .select("id, round_id, round_number, burst_point")
           .gt("round_number", maxNumber)
           .order("round_number", { ascending: true });
         if (error) throw error;
-        const newOnes = data ?? [];
-
-        setRoundsQueue((prev) => [...prev, ...newOnes]);
+        const list = Array.isArray(data) ? data : [];
+        const normalized = list.map((r) => ({
+          ...r,
+          round_id: r.round_id ?? (r.id != null ? String(r.id) : null),
+        }));
+        setRoundsQueue((prev) => [...prev, ...normalized]);
       } catch (e) {
         console.error("Top-up rounds failed", e);
       }
@@ -249,7 +257,11 @@ export default function App() {
       .on("broadcast", { event: "rounds_update" }, (payload) => {
         const list = payload?.payload?.rounds;
         if (!Array.isArray(list) || list.length === 0) return;
-        setRoundsQueue(list);
+        const normalized = list.map((r) => ({
+          ...r,
+          round_id: r.round_id ?? (r.id != null ? String(r.id) : null),
+        }));
+        setRoundsQueue(normalized);
         setCurrentIndex(0);
         setQueueLoaded(true);
       });
@@ -415,7 +427,7 @@ export default function App() {
         return;
       }
 
-      const roundIdText = betRound?.round_id;
+      const roundIdText = betRound?.round_id ?? (betRound?.id != null ? String(betRound.id) : "");
       if (!roundIdText) {
         setMessage({ type: "error", text: "No bettable round. Waiting for rounds." });
         return;
