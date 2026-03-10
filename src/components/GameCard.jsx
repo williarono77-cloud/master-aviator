@@ -1,78 +1,101 @@
 import React, { useEffect, useRef, useState } from "react";
 
 /**
- * Simulation engine for generating rounds locally
- * TODO: Replace multiplier calculation with database rules injection
+ * Game card with plane icon, rotating circles, and rest period countdown.
+ * Driven entirely by the provided burstPoint; no local fallback simulation
+ * is used when real round data is available.
  */
-function useRoundSimulation(enabled) {
-  const [simMultiplier, setSimMultiplier] = useState(0.0);
-  const [simState, setSimState] = useState("live");
+export default function GameCard({ burstPoint, onMultiplierUpdate, onBurst }) {
+  const [multiplier, setMultiplier] = useState(1.0);
+  const [roundState, setRoundState] = useState("live"); // 'live' | 'burst' | 'rest'
+  const [restCountdown, setRestCountdown] = useState(5);
+  const [restProgress, setRestProgress] = useState(0);
+
   const rafRef = useRef(null);
-  const startTimeRef = useRef(null);
-  const crashAtRef = useRef(null);
-  const roundDurationRef = useRef(null);
-  const stateRef = useRef("live");
+  const restTimerRef = useRef(null);
+  const burstTimerRef = useRef(null);
+  const roundStateRef = useRef("live");
+  const hasBurstRef = useRef(false);
 
+  // Start a new round animation whenever burstPoint changes
   useEffect(() => {
-    if (!enabled) return;
+    if (rafRef.current) {
+      cancelAnimationFrame(rafRef.current);
+      rafRef.current = null;
+    }
+    if (restTimerRef.current) {
+      clearInterval(restTimerRef.current);
+      restTimerRef.current = null;
+    }
+    if (burstTimerRef.current) {
+      clearTimeout(burstTimerRef.current);
+      burstTimerRef.current = null;
+    }
 
-    const startNewRound = () => {
-      startTimeRef.current = performance.now();
-      setSimMultiplier(0.0);
-      setSimState("live");
-      stateRef.current = "live";
-      
-      // TODO: Get crash point from database rules
-      // For now: random crash between 1.5x and 10x
-    crashAtRef.current = props.burst_point || (1.5 + Math.random() * 8.5);
-      
-      // TODO: Get round duration from database rules
-      // For now: random duration between 5-20 seconds
-      roundDurationRef.current = 5000 + Math.random() * 15000;
-    };
+    setMultiplier(1.0);
+    setRoundState("live");
+    roundStateRef.current = "live";
+    setRestCountdown(5);
+    setRestProgress(0);
+    hasBurstRef.current = false;
 
-    startNewRound();
+    const numericBurst = Number(burstPoint);
+    if (!numericBurst || numericBurst <= 1) {
+      return;
+    }
 
-    const animate = () => {
-      if (!startTimeRef.current) {
-        startNewRound();
-        rafRef.current = requestAnimationFrame(animate);
-        return;
+    const startTime = performance.now();
+    const target = numericBurst;
+
+    const animate = (now) => {
+      if (roundStateRef.current !== "live") return;
+
+      const elapsed = now - startTime;
+      const t = elapsed / 1000;
+
+      const k = 0.35;
+      const raw = 1 + (Math.exp(k * t) - 1);
+      const next = Math.min(raw, target);
+
+      setMultiplier(next);
+      if (onMultiplierUpdate) {
+        onMultiplierUpdate(next);
       }
 
-      const elapsed = performance.now() - startTimeRef.current;
-      const progress = Math.min(elapsed / roundDurationRef.current, 1);
+      if (!hasBurstRef.current && next >= target) {
+        hasBurstRef.current = true;
+        setRoundState("burst");
+        roundStateRef.current = "burst";
 
-      if (stateRef.current === "live") {
-        // TODO: Replace with database rules for multiplier calculation
-        // For now: exponential growth formula starting from 0.0
-
-        const k = 0.4;
-        const timeSeconds = elapsed / 1000;
-        // Start at 0, grow exponentially: 0 -> 1.0 -> crash point
-        // Formula: multiplier = (exp(k*t) - 1) * scale_factor
-        // At t=0: multiplier = 0
-        // At t=small: multiplier grows quickly to 1.0+
-        const multiplier = (Math.exp(k * timeSeconds) - 1) * 0.8;
-        
-        const cappedMultiplier = Math.min(multiplier, crashAtRef.current);
-        setSimMultiplier(cappedMultiplier);
-
-        // Send live multiplier to App.jsx every frame
-        if (onMultiplierUpdate) {
-          onMultiplierUpdate(cappedMultiplier);
+        if (onBurst) {
+          onBurst();
         }
 
-        // Check if we've reached crash point
-        if (cappedMultiplier >= crashAtRef.current - 0.001 || progress >= 1) {
-          setSimState("ended");
-          stateRef.current = "ended";
-          
-          // After showing ended, start new round after rest period
-          setTimeout(() => {
-            startNewRound();
-          }, 6500); // 1.5s burst + 5s rest
-        }
+        burstTimerRef.current = setTimeout(() => {
+          setRoundState("rest");
+          roundStateRef.current = "rest";
+          setRestCountdown(5);
+          setRestProgress(0);
+
+          let remaining = 5;
+          const interval = setInterval(() => {
+            remaining -= 1;
+            setRestCountdown(remaining);
+            setRestProgress((5 - remaining) / 5);
+
+            if (remaining <= 0) {
+              clearInterval(interval);
+              restTimerRef.current = null;
+              setRoundState("live");
+              roundStateRef.current = "live";
+              setRestProgress(1);
+            }
+          }, 1000);
+
+          restTimerRef.current = interval;
+        }, 1500);
+
+        return;
       }
 
       rafRef.current = requestAnimationFrame(animate);
@@ -84,106 +107,6 @@ function useRoundSimulation(enabled) {
       if (rafRef.current) {
         cancelAnimationFrame(rafRef.current);
       }
-    };
-  }, [enabled]);
-
-  return { multiplier: simMultiplier, state: simState };
-}
-
-/**
- * Game card with plane icon, rotating circles, and rest period countdown.
- * - Plane icon with spinning propeller (no movement)
- * - Multiplier displayed inside two counter-rotating circles
- * - 5-second rest period after each round with blue countdown circumference
- */
-  export default function GameCard({ state, onMultiplierUpdate }) {
-  // Use simulation if no external data provided
-  const useSim = !state || state !== 'live'; // only sim when no real live state
-  const sim = useRoundSimulation(useSim);
-  
-const actualMultiplier = useSim ? sim.multiplier : (multiplier ?? 1.00);
-  const actualState = useSim ? sim.state : state;
-
-  const [roundState, setRoundState] = useState("live"); // 'live' | 'burst' | 'rest'
-  const [restCountdown, setRestCountdown] = useState(5);
-  const [restProgress, setRestProgress] = useState(0);
-  const restTimerRef = useRef(null);
-  const burstTimerRef = useRef(null);
-  const prevStateRef = useRef(actualState);
-  const roundStateRef = useRef("live");
-
-  // Sync ref with state
-  useEffect(() => {
-    roundStateRef.current = roundState;
-  }, [roundState]);
-
-  // Determine round state from props
-  useEffect(() => {
-    const isEnded = actualState === "ended" || actualState === "flew_away";
-    const isLive = actualState === "live" || actualState === "active";
-    const currentRoundState = roundStateRef.current;
-
-    // Clean up any existing timers
-    if (restTimerRef.current) {
-      clearInterval(restTimerRef.current);
-      restTimerRef.current = null;
-    }
-    if (burstTimerRef.current) {
-      clearTimeout(burstTimerRef.current);
-      burstTimerRef.current = null;
-    }
-
-    // If state changed from live to ended, show BURSTED then start rest period
-    if (prevStateRef.current !== "ended" && isEnded && (currentRoundState === "live" || currentRoundState === "burst")) {
-      // First show BURSTED for 1.5 seconds
-      setRoundState("burst");
-      roundStateRef.current = "burst";
-
-      burstTimerRef.current = setTimeout(() => {
-        // Then start rest period
-        setRoundState("rest");
-        roundStateRef.current = "rest";
-        setRestCountdown(5);
-        setRestProgress(0);
-
-        // Start countdown timer
-        let countdown = 5;
-        const interval = setInterval(() => {
-          countdown -= 1;
-          setRestCountdown(countdown);
-          setRestProgress((5 - countdown) / 5);
-
-          if (countdown <= 0) {
-            clearInterval(interval);
-            restTimerRef.current = null;
-            setRoundState("live");
-            roundStateRef.current = "live";
-            setRestProgress(1);
-          }
-        }, 1000);
-
-        restTimerRef.current = interval;
-      }, 1500);
-    } else if (isLive && currentRoundState === "rest") {
-      // If state becomes live during rest, cancel rest
-      if (restTimerRef.current) {
-        clearInterval(restTimerRef.current);
-        restTimerRef.current = null;
-      }
-      setRoundState("live");
-      roundStateRef.current = "live";
-      setRestCountdown(5);
-      setRestProgress(0);
-    } else if (isLive && currentRoundState !== "live" && currentRoundState !== "rest" && currentRoundState !== "burst") {
-      setRoundState("live");
-      roundStateRef.current = "live";
-      setRestCountdown(5);
-      setRestProgress(0);
-    }
-
-    prevStateRef.current = actualState;
-
-    return () => {
       if (restTimerRef.current) {
         clearInterval(restTimerRef.current);
         restTimerRef.current = null;
@@ -193,10 +116,9 @@ const actualMultiplier = useSim ? sim.multiplier : (multiplier ?? 1.00);
         burstTimerRef.current = null;
       }
     };
-  }, [actualState]);
+  }, [burstPoint, onMultiplierUpdate, onBurst]);
 
-  // Display multiplier: show 0.0x if null/undefined/0, otherwise show actual value
-  const numMultiplier = actualMultiplier === null || actualMultiplier === undefined ? null : Number(actualMultiplier);
+  const numMultiplier = multiplier === null || multiplier === undefined ? null : Number(multiplier);
   const displayMultiplier = numMultiplier === null || numMultiplier === undefined || numMultiplier === 0
     ? "0.00" 
     : numMultiplier.toFixed(2);
