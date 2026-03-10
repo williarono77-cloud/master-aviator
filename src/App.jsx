@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { supabase, isSupabaseConfigured } from "./supabaseClient.js";
 import { getAuthRole, setAuthRole, clearAuthRole } from "./utils/storage.js";
 
@@ -36,14 +36,13 @@ export default function App() {
 
   // Data state
   const [wallet, setWallet] = useState(null);
-  const [currentRound, setCurrentRound] = useState(null);
   const [deposits, setDeposits] = useState([]);
-  const [scheduledQueuePublic, setScheduledQueuePublic] = useState([]);
+  const [roundsQueue, setRoundsQueue] = useState([]);
   const [queueLoaded, setQueueLoaded] = useState(false);
-  const [lastConsumedRoundId, setLastConsumedRoundId] = useState(null);
-  const [consumingRound, setConsumingRound] = useState(false);
-  const [liveMultiplier, setLiveMultiplier] = useState(1.00);
+  const [currentIndex, setCurrentIndex] = useState(0);
   const [showDashboard, setShowDashboard] = useState(false);
+
+  const roundChannelRef = useRef(null);
 
   const userId = session?.user?.id ?? null;
 
@@ -75,31 +74,68 @@ export default function App() {
     }
   }, [userId]);
 
-  const refreshPublicData = useCallback(async () => {
+  const broadcastRoundState = useCallback((state, round) => {
+    if (!roundChannelRef.current || !round) return;
     try {
-      const roundRes = await supabase.from("current_round").select("*").maybeSingle();
-      if (roundRes.error) {
-        setCurrentRound(null);
-        return;
-      }
-      setCurrentRound(roundRes.data ?? null);
+      roundChannelRef.current.send({
+        type: "broadcast",
+        event: "round_state",
+        payload: {
+          state,
+          round_number: round.round_number ?? null,
+          burst_point: round.burst_point ?? null,
+        },
+      });
     } catch {
-      setCurrentRound(null);
+      // best-effort only; ignore broadcast failures
     }
   }, []);
 
-  const refreshPublicQueue = useCallback(async () => {
+  const refreshRoundsQueue = useCallback(async () => {
     if (!isSupabaseConfigured) return;
     try {
       const { data, error } = await supabase.rpc("get_next_rounds_public");
       if (error) throw error;
-      setScheduledQueuePublic(data ?? []);
+      setRoundsQueue(data ?? []);
+      setCurrentIndex(0);
     } catch {
-      setScheduledQueuePublic([]);
+      setRoundsQueue([]);
     } finally {
       setQueueLoaded(true);
     }
   }, []);
+
+  const topUpRoundsIfLow = useCallback(
+    async (currentQueue) => {
+      if (!isSupabaseConfigured) return;
+      const queue = currentQueue ?? roundsQueue;
+      const remaining = queue.length - currentIndex;
+      if (remaining > 3) return;
+
+      const maxNumber = queue.reduce(
+        (max, r) => (r.round_number != null && r.round_number > max ? r.round_number : max),
+        0
+      );
+
+      try {
+        const { error: genError } = await supabase.rpc("generate_next_rounds", { p_target: 12 });
+        if (genError) throw genError;
+
+        const { data, error } = await supabase
+          .from("game_rounds")
+          .select("id, round_number, burst_point")
+          .gt("round_number", maxNumber)
+          .order("round_number", { ascending: true });
+        if (error) throw error;
+        const newOnes = data ?? [];
+
+        setRoundsQueue((prev) => [...prev, ...newOnes]);
+      } catch (e) {
+        console.error("Top-up rounds failed", e);
+      }
+    },
+    [isSupabaseConfigured, roundsQueue, currentIndex]
+  );
 
   function fetchAndSetRole(uid, cancelledRef) {
     if (!uid) return;
@@ -174,6 +210,20 @@ export default function App() {
     };
   }, []);
 
+  // Round sync channel (broadcast to admin dashboard)
+  useEffect(() => {
+    if (!isSupabaseConfigured) return;
+    const channel = supabase.channel("round-sync");
+    roundChannelRef.current = channel;
+    channel.subscribe();
+    return () => {
+      if (roundChannelRef.current) {
+        supabase.removeChannel(roundChannelRef.current);
+        roundChannelRef.current = null;
+      }
+    };
+  }, []);
+
   // Load private data when session changes
   useEffect(() => {
     if (!userId) {
@@ -204,192 +254,18 @@ export default function App() {
     };
   }, [userId]);
 
-  // Public data: initial fetch + polling (faster during break so next round is fetched when tables update)
+  // Initial rounds queue fetch
   useEffect(() => {
     if (!isSupabaseConfigured) return;
+    refreshRoundsQueue();
+  }, [refreshRoundsQueue]);
 
-    refreshPublicData();
-    const isBreak = currentRound?.status === "ended" || currentRound?.state === "ended";
-    const intervalMs = isBreak ? 1500 : 3000;
-    const interval = setInterval(refreshPublicData, intervalMs);
-    return () => clearInterval(interval);
-  }, [refreshPublicData, currentRound?.status, currentRound?.state]);
-
-  // Initial public queue fetch
-  useEffect(() => {
-    if (!isSupabaseConfigured) return;
-    refreshPublicQueue();
-  }, [refreshPublicQueue]);
-
-  // Realtime: game rounds
-  useEffect(() => {
-    if (!isSupabaseConfigured) return;
-
-    const channel = supabase
-      .channel("round-updates")
-      .on("postgres_changes", { event: "*", schema: "public", table: "game_rounds" }, () => {
-        refreshPublicData();
-        refreshPublicQueue();
-      })
-      .subscribe();
-
-    return () => {
-      supabase.removeChannel(channel);
-    };
-  }, [refreshPublicData, refreshPublicQueue]);
-
-  // Track current live round id from public current_round view
-  useEffect(() => {
-    const roundId = currentRound?.id ?? null;
-    const status = currentRound?.status ?? currentRound?.state ?? null;
-
-    if (!roundId) {
-      setCurrentLiveRoundId(null);
-      return;
-    }
-
-    if (status === "live" || status === "active") {
-      setCurrentLiveRoundId(roundId);
-    }
-  }, [currentRound?.id, currentRound?.status, currentRound?.state]);
-
-  // Consume finished round via RPC without exposing future burst points
- // Auto consume + resolve round when server marks it as ended (full auto-progression)
-useEffect(() => {
-  if (!isSupabaseConfigured) return;
-
-  const roundId = currentRound?.id ?? null;
-  const status = currentRound?.status ?? currentRound?.state ?? null;
-
-  if (!roundId || status !== "ended") return;
-  if (roundId === lastConsumedRoundId || consumingRound) return;
-
-  let cancelled = false;
-
-     const processRoundEnd = async () => {
-      setConsumingRound(true);
-      try {
-        // Step 1: Consume / close the round
-        const { error: consumeError } = await supabase.rpc("consume_round", { p_round_id: roundId });
-        if (consumeError) {
-          throw new Error(`Consume RPC failed: ${consumeError.message}`);
-        }
-        console.log(`Round ${roundId} consumed successfully`);
-
-        // Step 2: Resolve bets and pay winners
-        const { error: resolveError } = await supabase.rpc("resolve_round_bets", { p_round_id: roundId });
-        if (resolveError) {
-          throw new Error(`Resolve RPC failed: ${resolveError.message}`);
-        }
-        console.log(`Round ${roundId} bets resolved successfully`);
-
-      if (!cancelled) {
-        setLastConsumedRoundId(roundId);
-        refreshPublicQueue();
-        setMessage({
-          type: "success",
-          text: `Round #${roundId} burst! Winners paid automatically. Next round starting soon.`
-        });
-
-        // Automatically promote next scheduled round to live (only on success)
-        if (scheduledQueuePublic.length > 1) {
-          const nextScheduled = scheduledQueuePublic[1];
-          const nextId = nextScheduled.id || nextScheduled.round_id;
-          console.log(`Promoting next scheduled round to LIVE: ${nextId}`);
-
-          supabase.rpc('set_round_live', { p_round_id: nextId })
-            .then(({ error }) => {
-              if (error) {
-                console.error('Failed to promote next round:', error.message);
-                setMessage?.({ type: 'error', text: 'Failed to start next round – refresh or contact support' });
-              } else {
-                console.log(`Next round ${nextId} is now LIVE`);
-              }
-            })
-            .catch(err => console.error('Promotion RPC error:', err));
-        }
-      }
-      } catch (error) {
-        console.error("Round end processing failed:", error.message || error);
-        let userMsg = "Error settling round (payout may be delayed) – check your balance or contact support.";
-        
-        if (error.message.includes("Consume")) {
-          userMsg = "Failed to close round – game may be stuck. Please wait or refresh.";
-        } else if (error.message.includes("Resolve")) {
-          userMsg = "Failed to pay winners – bets resolved may be delayed. Check wallet soon.";
-        }
-
-        setMessage({ type: "error", text: userMsg });
-      } finally {
-        if (!cancelled) {
-          setConsumingRound(false);
-        }
-      }
-    };
-
-  processRoundEnd();
-
-  return () => {
-    cancelled = true;
-  };
-}, [currentRound?.id, currentRound?.status, currentRound?.state, lastConsumedRoundId, consumingRound, refreshPublicQueue]);
-
-
-  // Client-side safety net: force-end round if stuck in "live" too long
-  useEffect(() => {
-    if (!currentRound || currentRound.status !== "live") return;
-
-    const MAX_ROUND_DURATION_MS = 2 * 60 * 1000; // 2 minutes (120000 ms) - adjustable
-    const timeoutId = setTimeout(() => {
-      if (currentRound?.status === "live") {
-        console.warn(`Round ${currentRound.id} stuck in "live" state for >2 minutes → forcing end as safety`);
-        supabase.rpc("force_end_round", { p_round_id: currentRound.id })
-          .then(({ error }) => {
-            if (error) {
-              console.error("Safety force-end RPC failed:", error.message);
-            } else {
-              console.log(`Safety force-end triggered for round ${currentRound.id}`);
-            }
-          })
-          .catch((err) => console.error("Safety force-end promise error:", err));
-      }
-    }, MAX_ROUND_DURATION_MS);
-
-    return () => clearTimeout(timeoutId);
-  }, [currentRound?.id, currentRound?.status]);
-
-  // Client-side burst detection: watch live multiplier from GameCard
-      useEffect(() => {
-        if (!currentRound || currentRound.status !== 'live') return;
-      
-        const burstPoint = currentRound.burst_point ?? 100; // fallback if not exposed (very high to avoid false burst)
-      
-        if (liveMultiplier >= burstPoint) {
-          console.log(`Client burst detected: ${liveMultiplier.toFixed(2)}x >= ${burstPoint}x (server point: ${currentRound.burst_point ?? 'hidden'})`);
-      
-          supabase.rpc('force_end_round', { p_round_id: currentRound.id })
-            .then(({ error }) => {
-              if (error) {
-                console.error('Force end RPC failed:', error.message);
-                setMessage?.({ type: 'error', text: 'Failed to end round – retrying...' });
-              } else {
-                console.log('Client successfully forced round end');
-                setMessage?.({ type: 'success', text: 'Burst detected – round ending!' });
-              }
-            })
-            .catch(err => {
-              console.error('Force end promise error:', err);
-            });
-        }
-      }, [liveMultiplier, currentRound?.id, currentRound?.status, currentRound?.burst_point, setMessage]);     
-       
   const balance = useMemo(() => (wallet?.available_cents ?? 0) / 100, [wallet?.available_cents]);
 
   const lastDepositPhone = useMemo(() => (deposits.length > 0 ? deposits[0]?.phone ?? null : null), [deposits]);
 
-  const currentState = useMemo(() => currentRound?.status ?? currentRound?.state ?? null, [currentRound]);
-
-  const roundsReady = queueLoaded && scheduledQueuePublic.length > 0;
+  const roundsReady = queueLoaded && roundsQueue.length > 0;
+  const currentRound = roundsReady ? roundsQueue[currentIndex] ?? null : null;
 
   const handleAuthSuccess = useCallback(() => {
     refreshPrivateData();
@@ -413,8 +289,46 @@ useEffect(() => {
     }
   }, []);
 
-  const betRound = scheduledQueuePublic[0] ?? null;
-  const canBet = roundsReady && betRound?.status === "scheduled";
+  const betRound = currentRound ?? null;
+  const canBet = roundsReady && !!betRound;
+
+  const handleRoundBurst = useCallback(async (finishedRound) => {
+    if (!roundsReady || !finishedRound) return;
+
+    // Notify admin that this round bursted
+    broadcastRoundState("bursted", finishedRound);
+
+    const nextIndex = currentIndex + 1;
+    const hasMoreInBuffer = nextIndex < roundsQueue.length;
+
+    if (hasMoreInBuffer) {
+      const nextRound = roundsQueue[nextIndex];
+      setCurrentIndex(nextIndex);
+      // Notify admin which round is now live
+      if (nextRound) {
+        broadcastRoundState("live", nextRound);
+      }
+      topUpRoundsIfLow(roundsQueue);
+      return;
+    }
+
+    try {
+      await supabase.rpc("generate_next_rounds", { p_target: 12 });
+    } catch (e) {
+      console.error("generate_next_rounds failed", e);
+    }
+
+    await refreshRoundsQueue();
+  }, [roundsReady, currentIndex, roundsQueue, broadcastRoundState, refreshRoundsQueue, topUpRoundsIfLow]);
+
+  // Whenever the current index or queue changes, broadcast the live round
+  useEffect(() => {
+    if (!roundsReady) return;
+    const round = roundsQueue[currentIndex] ?? null;
+    if (round) {
+      broadcastRoundState("live", round);
+    }
+  }, [roundsReady, roundsQueue, currentIndex, broadcastRoundState]);
 
   const handleBetClick = useCallback(
     async (action, stake, side) => {
@@ -510,19 +424,14 @@ useEffect(() => {
               Waiting for rounds. Admin must generate rounds in the Admin Dashboard.
             </div>
           )}
-            <GameCard
-              state={roundsReady ? currentState : null}
-              multiplier={liveMultiplier}
-              onMultiplierUpdate={setLiveMultiplier}
-            />
-            {consumingRound && (
-            <div className="message-banner message-banner--info" role="status" style={{ margin: "1rem", textAlign: "center" }}>
-              Processing round end... Winners being paid. Please wait a moment.
-            </div>
-          )}
+          <GameCard
+            burstPoint={currentRound?.burst_point ?? null}
+            onMultiplierUpdate={() => {}}
+            onBurst={() => handleRoundBurst(currentRound)}
+          />
           
-          <BetPanel panelId="1" side="top" session={session} onBetClick={handleBetClick} disabled={!canBet || consumingRound} />
-          <BetPanel panelId="2" side="bottom" session={session} onBetClick={handleBetClick} disabled={!canBet || consumingRound} />
+          <BetPanel panelId="1" side="top" session={session} onBetClick={handleBetClick} disabled={!canBet} />
+          <BetPanel panelId="2" side="bottom" session={session} onBetClick={handleBetClick} disabled={!canBet} />
 
           <FeedTabs activeTab={feedTab} onTabChange={setFeedTab} />
           {feedTab === "all" && <AllBetsTable />}
@@ -563,9 +472,6 @@ useEffect(() => {
     </div>
   );
 }
-
-
-
 
 
 
