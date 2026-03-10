@@ -209,9 +209,11 @@ export default function AdminDashboard({ user, setMessage, onNotAdmin }) {
         .from('next_rounds_admin')
         .select('id, round_id, round_number, burst_point')
         .order('round_number', { ascending: true })
+      console.log('AdminDashboard: next_rounds_admin response', { data, error })
       if (error) throw error
 
       const queue = data ?? []
+      console.log('AdminDashboard: rounds queue parsed', queue)
 
       setRoundsQueueAdmin(queue)
     } catch (e) {
