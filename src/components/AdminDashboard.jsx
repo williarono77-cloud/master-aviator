@@ -754,6 +754,7 @@ export default function AdminDashboard({ user, setMessage, onNotAdmin }) {
     </div>
   )
 }
+// DEBUG TELEMETRY REMOVED - no more 127.0.0.1:7736 calls
 
 
 
