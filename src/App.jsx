@@ -43,6 +43,7 @@ export default function App() {
   const [showDashboard, setShowDashboard] = useState(false);
 
   const roundChannelRef = useRef(null);
+  const lastNeedRoundsRequestRef = useRef(0);
 
   const userId = session?.user?.id ?? null;
 
@@ -137,6 +138,36 @@ export default function App() {
     [isSupabaseConfigured, roundsQueue, currentIndex]
   );
 
+  const requestFreshRoundsFromAdmin = useCallback(() => {
+    if (!roundChannelRef.current) return;
+    try {
+      roundChannelRef.current.send({
+        type: "broadcast",
+        event: "need_new_rounds",
+        payload: {
+          requested_at: new Date().toISOString(),
+        },
+      });
+    } catch {
+      // best-effort only; ignore broadcast failures
+    }
+  }, []);
+
+  const ensureRoundsAvailable = useCallback(() => {
+    if (!isSupabaseConfigured) return;
+
+    const noRounds = roundsQueue.length === 0;
+    const finished = roundsQueue.length > 0 && currentIndex >= roundsQueue.length;
+
+    if (!noRounds && !finished) return;
+
+    const now = Date.now();
+    if (now - lastNeedRoundsRequestRef.current < 2500) return;
+    lastNeedRoundsRequestRef.current = now;
+
+    requestFreshRoundsFromAdmin();
+  }, [isSupabaseConfigured, roundsQueue, currentIndex, requestFreshRoundsFromAdmin]);
+
   function fetchAndSetRole(uid, cancelledRef) {
     if (!uid) return;
     setRole(getAuthRole(uid) ?? null);
@@ -213,7 +244,15 @@ export default function App() {
   // Round sync channel (broadcast to admin dashboard)
   useEffect(() => {
     if (!isSupabaseConfigured) return;
-    const channel = supabase.channel("round-sync");
+    const channel = supabase
+      .channel("round-sync")
+      .on("broadcast", { event: "rounds_update" }, (payload) => {
+        const list = payload?.payload?.rounds;
+        if (!Array.isArray(list) || list.length === 0) return;
+        setRoundsQueue(list);
+        setCurrentIndex(0);
+        setQueueLoaded(true);
+      });
     roundChannelRef.current = channel;
     channel.subscribe();
     return () => {
@@ -259,6 +298,22 @@ export default function App() {
     if (!isSupabaseConfigured) return;
     refreshRoundsQueue();
   }, [refreshRoundsQueue]);
+
+  // Ensure we always have rounds on mount and whenever queue/index changes.
+  // ROUNDS NEVER STOP – FORCED REFRESH IMPLEMENTED
+  useEffect(() => {
+    if (!queueLoaded) return;
+    ensureRoundsAvailable();
+  }, [queueLoaded, ensureRoundsAvailable]);
+
+  // Fallback polling when no rounds are present on the user page
+  useEffect(() => {
+    if (!queueLoaded || roundsQueue.length > 0) return;
+    const id = setInterval(() => {
+      ensureRoundsAvailable();
+    }, 3000);
+    return () => clearInterval(id);
+  }, [queueLoaded, roundsQueue.length, ensureRoundsAvailable]);
 
   const balance = useMemo(() => (wallet?.available_cents ?? 0) / 100, [wallet?.available_cents]);
 
@@ -312,14 +367,10 @@ export default function App() {
       return;
     }
 
-    try {
-      await supabase.rpc("generate_next_rounds", { p_target: 12 });
-    } catch (e) {
-      console.error("generate_next_rounds failed", e);
-    }
-
-    await refreshRoundsQueue();
-  }, [roundsReady, currentIndex, roundsQueue, broadcastRoundState, refreshRoundsQueue, topUpRoundsIfLow]);
+    // No more rounds in the local buffer – request fresh rounds from admin.
+    setCurrentIndex(nextIndex);
+    ensureRoundsAvailable();
+  }, [roundsReady, currentIndex, roundsQueue, broadcastRoundState, topUpRoundsIfLow, ensureRoundsAvailable]);
 
   // Whenever the current index or queue changes, broadcast the live round
   useEffect(() => {
