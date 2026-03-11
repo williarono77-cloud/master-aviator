@@ -75,6 +75,21 @@ export default function App() {
     }
   }, [userId]);
 
+  const requestFreshRoundsFromAdmin = useCallback(() => {
+    if (!roundChannelRef.current) return;
+    try {
+      roundChannelRef.current.send({
+        type: "broadcast",
+        event: "need_new_rounds",
+        payload: {
+          requested_at: new Date().toISOString(),
+        },
+      });
+    } catch {
+      // best-effort only; ignore broadcast failures
+    }
+  }, []);
+
   const broadcastRoundState = useCallback((state, round) => {
     if (!roundChannelRef.current || !round) return;
     try {
@@ -99,21 +114,6 @@ export default function App() {
     requestFreshRoundsFromAdmin();
     setQueueLoaded(true);
   }, [requestFreshRoundsFromAdmin]);
-
-  const requestFreshRoundsFromAdmin = useCallback(() => {
-    if (!roundChannelRef.current) return;
-    try {
-      roundChannelRef.current.send({
-        type: "broadcast",
-        event: "need_new_rounds",
-        payload: {
-          requested_at: new Date().toISOString(),
-        },
-      });
-    } catch {
-      // best-effort only; ignore broadcast failures
-    }
-  }, []);
 
   const ensureRoundsAvailable = useCallback(() => {
     if (!isSupabaseConfigured) return;
