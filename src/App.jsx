@@ -96,15 +96,18 @@ export default function App() {
     if (!isSupabaseConfigured) return;
     try {
       const { data, error } = await supabase.rpc("get_next_rounds_public");
+      console.log("App.jsx: get_next_rounds_public response", { data, error });
       if (error) throw error;
       const list = Array.isArray(data) ? data : [];
       const normalized = list.map((r) => ({
         ...r,
         round_id: r.round_id ?? (r.id != null ? String(r.id) : null),
       }));
+      console.log("App.jsx: rounds queue set", normalized);
       setRoundsQueue(normalized);
       setCurrentIndex(0);
-    } catch {
+    } catch (e) {
+      console.log("App.jsx: rounds fetch failed", e);
       setRoundsQueue([]);
     } finally {
       setQueueLoaded(true);
