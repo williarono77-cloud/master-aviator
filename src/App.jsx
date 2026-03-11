@@ -94,60 +94,11 @@ export default function App() {
 
   const refreshRoundsQueue = useCallback(async () => {
     if (!isSupabaseConfigured) return;
-    try {
-      const { data, error } = await supabase.rpc("get_next_rounds_public");
-      console.log("App.jsx: get_next_rounds_public response", { data, error });
-      if (error) throw error;
-      const list = Array.isArray(data) ? data : [];
-      const normalized = list.map((r) => ({
-        ...r,
-        round_id: r.round_id ?? (r.id != null ? String(r.id) : null),
-      }));
-      console.log("App.jsx: rounds queue set", normalized);
-      setRoundsQueue(normalized);
-      setCurrentIndex(0);
-    } catch (e) {
-      console.log("App.jsx: rounds fetch failed", e);
-      setRoundsQueue([]);
-    } finally {
-      setQueueLoaded(true);
-    }
-  }, []);
-
-  const topUpRoundsIfLow = useCallback(
-    async (currentQueue) => {
-      if (!isSupabaseConfigured) return;
-      const queue = currentQueue ?? roundsQueue;
-      const remaining = queue.length - currentIndex;
-      if (remaining > 3) return;
-
-      const maxNumber = queue.reduce(
-        (max, r) => (r.round_number != null && r.round_number > max ? r.round_number : max),
-        0
-      );
-
-      try {
-        const { error: genError } = await supabase.rpc("generate_next_rounds", { p_target: 12 });
-        if (genError) throw genError;
-
-        const { data, error } = await supabase
-          .from("game_rounds")
-          .select("id, round_id, round_number, burst_point")
-          .gt("round_number", maxNumber)
-          .order("round_number", { ascending: true });
-        if (error) throw error;
-        const list = Array.isArray(data) ? data : [];
-        const normalized = list.map((r) => ({
-          ...r,
-          round_id: r.round_id ?? (r.id != null ? String(r.id) : null),
-        }));
-        setRoundsQueue((prev) => [...prev, ...normalized]);
-      } catch (e) {
-        console.error("Top-up rounds failed", e);
-      }
-    },
-    [isSupabaseConfigured, roundsQueue, currentIndex]
-  );
+    // User page does not fetch rounds directly from the database.
+    // It requests the admin dashboard to push the current queue via realtime.
+    requestFreshRoundsFromAdmin();
+    setQueueLoaded(true);
+  }, [requestFreshRoundsFromAdmin]);
 
   const requestFreshRoundsFromAdmin = useCallback(() => {
     if (!roundChannelRef.current) return;
@@ -378,14 +329,13 @@ export default function App() {
       if (nextRound) {
         broadcastRoundState("live", nextRound);
       }
-      topUpRoundsIfLow(roundsQueue);
       return;
     }
 
     // No more rounds in the local buffer – request fresh rounds from admin.
     setCurrentIndex(nextIndex);
     ensureRoundsAvailable();
-  }, [roundsReady, currentIndex, roundsQueue, broadcastRoundState, topUpRoundsIfLow, ensureRoundsAvailable]);
+  }, [roundsReady, currentIndex, roundsQueue, broadcastRoundState, ensureRoundsAvailable]);
 
   // Whenever the current index or queue changes, broadcast the live round
   useEffect(() => {
