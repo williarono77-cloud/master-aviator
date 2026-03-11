@@ -221,6 +221,18 @@ export default function App() {
       });
     roundChannelRef.current = channel;
     channel.subscribe();
+    // Once subscribed, immediately ask admin for rounds.
+    try {
+      channel.send({
+        type: "broadcast",
+        event: "need_new_rounds",
+        payload: {
+          requested_at: new Date().toISOString(),
+        },
+      });
+    } catch {
+      // best-effort only
+    }
     return () => {
       if (roundChannelRef.current) {
         supabase.removeChannel(roundChannelRef.current);
