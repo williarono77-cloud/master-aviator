@@ -120,8 +120,9 @@ export default function App() {
 
     const noRounds = roundsQueue.length === 0;
     const finished = roundsQueue.length > 0 && currentIndex >= roundsQueue.length;
+    const lowBuffer = roundsQueue.length > 0 && roundsQueue.length <= 3;
 
-    if (!noRounds && !finished) return;
+    if (!noRounds && !finished && !lowBuffer) return;
 
     const now = Date.now();
     if (now - lastNeedRoundsRequestRef.current < 2500) return;
@@ -211,12 +212,19 @@ export default function App() {
       .on("broadcast", { event: "rounds_update" }, (payload) => {
         const list = payload?.payload?.rounds;
         if (!Array.isArray(list) || list.length === 0) return;
-        const normalized = list.map((r) => ({
-          ...r,
-          round_id: r.round_id ?? (r.id != null ? String(r.id) : null),
-        }));
+        const normalized = list.map((r) => {
+          const rawBurst = r?.burst_point;
+          let burstPoint = rawBurst != null ? Number(rawBurst) : null;
+          if (burstPoint != null && !Number.isFinite(burstPoint)) {
+            burstPoint = null;
+          }
+          return {
+            ...r,
+            round_id: r.round_id ?? (r.id != null ? String(r.id) : null),
+            burst_point: burstPoint,
+          };
+        });
         setRoundsQueue(normalized);
-        setCurrentIndex(0);
         setQueueLoaded(true);
       });
     roundChannelRef.current = channel;
@@ -331,23 +339,14 @@ export default function App() {
     // Notify admin that this round bursted
     broadcastRoundState("bursted", finishedRound);
 
-    const nextIndex = currentIndex + 1;
-    const hasMoreInBuffer = nextIndex < roundsQueue.length;
-
-    if (hasMoreInBuffer) {
-      const nextRound = roundsQueue[nextIndex];
-      setCurrentIndex(nextIndex);
-      // Notify admin which round is now live
-      if (nextRound) {
-        broadcastRoundState("live", nextRound);
-      }
-      return;
-    }
-
-    // No more rounds in the local buffer – request fresh rounds from admin.
-    setCurrentIndex(nextIndex);
-    ensureRoundsAvailable();
-  }, [roundsReady, currentIndex, roundsQueue, broadcastRoundState, ensureRoundsAvailable]);
+    // Rolling buffer: drop the finished round from the front and keep index at 0
+    setRoundsQueue((prev) => {
+      if (!Array.isArray(prev) || prev.length === 0) return prev;
+      const [, ...rest] = prev;
+      return rest;
+    });
+    setCurrentIndex(0);
+  }, [roundsReady, broadcastRoundState]);
 
   // Whenever the current index or queue changes, broadcast the live round
   useEffect(() => {
