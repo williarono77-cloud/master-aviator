@@ -230,27 +230,29 @@ export default function AdminDashboard({ user, setMessage, onNotAdmin }) {
       if (!isSupabaseConfigured) return
       try {
         let queue = roundsQueueAdmin
-
         if (!Array.isArray(queue) || queue.length < 12) {
           const { error: genError } = await supabase.rpc('generate_next_rounds', { p_target: 12 })
           if (genError) throw genError
-
-          const { data, error } = await supabase
-            .from('next_rounds_admin')
-            .select('id, round_id, round_number, burst_point')
-            .order('round_number', { ascending: true })
-            .limit(12)
-          if (error) throw error
-
-          queue = data ?? []
-          setRoundsQueueAdmin(queue)
         }
+
+        const { data, error } = await supabase
+          .from('next_rounds_admin')
+          .select('id, round_id, round_number, burst_point')
+          .order('round_number', { ascending: true })
+          .limit(12)
+        if (error) throw error
+
+        queue = (data ?? []).map((r) => ({
+          ...r,
+          burst_point: r.burst_point != null ? Number(r.burst_point) : r.burst_point,
+        }))
+        setRoundsQueueAdmin(queue)
 
         channel.send({
           type: 'broadcast',
           event: 'rounds_update',
           payload: {
-            rounds: (queue ?? []).filter((r) => r?.burst_point != null).slice(0, 12),
+            rounds: queue,
           },
         })
       } catch (e) {
@@ -330,7 +332,10 @@ export default function AdminDashboard({ user, setMessage, onNotAdmin }) {
                     .order('round_number', { ascending: true })
                     .limit(12)
                   if (error) throw error
-                  const newOnes = data ?? []
+                  const newOnes = (data ?? []).map((r) => ({
+                    ...r,
+                    burst_point: r.burst_point != null ? Number(r.burst_point) : r.burst_point,
+                  }))
                   setRoundsQueueAdmin((current) => [...current, ...newOnes])
                 } catch (e) {
                   setRoundsQueueError(e?.message || 'Failed to top up rounds')
