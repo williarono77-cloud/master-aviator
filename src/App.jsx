@@ -224,7 +224,10 @@ export default function App() {
             burst_point: burstPoint,
           };
         });
-        setRoundsQueue(normalized);
+        if (!roundsQueue || roundsQueue.length === 0) {
+          setCurrentIndex(0);
+        }
+        setRoundsQueue((prev) => ([...(prev || []), ...normalized]));
         setQueueLoaded(true);
       });
     roundChannelRef.current = channel;
