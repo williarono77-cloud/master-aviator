@@ -209,6 +209,7 @@ export default function AdminDashboard({ user, setMessage, onNotAdmin }) {
         .from('next_rounds_admin')
         .select('id, round_id, round_number, burst_point')
         .order('round_number', { ascending: true })
+        .limit(12)
       console.log('AdminDashboard: next_rounds_admin response', { data, error })
       if (error) throw error
 
@@ -238,6 +239,7 @@ export default function AdminDashboard({ user, setMessage, onNotAdmin }) {
             .from('next_rounds_admin')
             .select('id, round_id, round_number, burst_point')
             .order('round_number', { ascending: true })
+            .limit(12)
           if (error) throw error
 
           queue = data ?? []
@@ -248,7 +250,7 @@ export default function AdminDashboard({ user, setMessage, onNotAdmin }) {
           type: 'broadcast',
           event: 'rounds_update',
           payload: {
-            rounds: (queue ?? []).slice(0, 12),
+            rounds: (queue ?? []).filter((r) => r?.burst_point != null).slice(0, 12),
           },
         })
       } catch (e) {
@@ -322,10 +324,11 @@ export default function AdminDashboard({ user, setMessage, onNotAdmin }) {
                   const { error: genError } = await supabase.rpc('generate_next_rounds', { p_target: 12 })
                   if (genError) throw genError
                   const { data, error } = await supabase
-                    .from('game_rounds')
+                    .from('next_rounds_admin')
                     .select('id, round_id, round_number, burst_point')
                     .gt('round_number', maxNumber)
                     .order('round_number', { ascending: true })
+                    .limit(12)
                   if (error) throw error
                   const newOnes = data ?? []
                   setRoundsQueueAdmin((current) => [...current, ...newOnes])
