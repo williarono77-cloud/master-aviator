@@ -247,9 +247,10 @@ export default function AdminDashboard({ user, setMessage, onNotAdmin }) {
           burst_point: r.burst_point != null ? Number(r.burst_point) : r.burst_point,
         }))
         setRoundsQueueAdmin(queue)
-        console.log('[ADMIN BROADCAST] Sending rounds_update now — payload size:', queue.length);
-        console.log('[ADMIN BROADCAST] First round in payload:', queue[0] ? { round_number: queue[0].round_number, burst_point: queue[0].burst_point } : 'empty');
-        console.log('[ADMIN BROADCAST] Last round in payload:', queue[queue.length - 1] ? { round_number: queue[queue.length - 1].round_number, burst_point: queue[queue.length - 1].burst_point } : 'empty');
+        .on('broadcast', { event: 'need_new_rounds' }, () => {
+          console.log('[ADMIN RECEIVED REQUEST] need_new_rounds from user — responding now');
+          respondToNeedNewRounds(channel)
+        })
         channel.send({
           type: 'broadcast',
           event: 'rounds_update',
@@ -767,6 +768,7 @@ export default function AdminDashboard({ user, setMessage, onNotAdmin }) {
   )
 }
 // DEBUG TELEMETRY REMOVED - no more 127.0.0.1:7736 calls
+
 
 
 
