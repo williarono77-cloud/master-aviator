@@ -247,10 +247,6 @@ export default function AdminDashboard({ user, setMessage, onNotAdmin }) {
           burst_point: r.burst_point != null ? Number(r.burst_point) : r.burst_point,
         }))
         setRoundsQueueAdmin(queue)
-        .on('broadcast', { event: 'need_new_rounds' }, () => {
-          console.log('[ADMIN RECEIVED REQUEST] need_new_rounds from user — responding now');
-          respondToNeedNewRounds(channel)
-        })
         channel.send({
           type: 'broadcast',
           event: 'rounds_update',
@@ -350,7 +346,7 @@ export default function AdminDashboard({ user, setMessage, onNotAdmin }) {
         }
       })
       .on('broadcast', { event: 'need_new_rounds' }, () => {
-        // ROUNDS NEVER STOP – FORCED REFRESH IMPLEMENTED
+         console.log('[ADMIN RECEIVED REQUEST] need_new_rounds from user — responding now')
         respondToNeedNewRounds(channel)
       })
       .subscribe()
@@ -768,6 +764,7 @@ export default function AdminDashboard({ user, setMessage, onNotAdmin }) {
   )
 }
 // DEBUG TELEMETRY REMOVED - no more 127.0.0.1:7736 calls
+
 
 
 
