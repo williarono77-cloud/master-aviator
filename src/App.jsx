@@ -224,6 +224,18 @@ export default function App() {
             burst_point: burstPoint,
           };
         });
+
+        // ADD THE LOGGING HERE (right after normalized is created)
+        console.groupCollapsed('🔴 New rounds received via broadcast');
+        console.log('Received rounds count:', normalized.length);
+        console.log('Full normalized rounds array:', normalized);
+        console.log('First round (if any):', normalized[0] || 'none');
+        console.log('Last round (if any):', normalized[normalized.length - 1] || 'none');
+        console.log('All burst_points:', normalized.map(r => r.burst_point));
+        console.log('Any missing burst_point?', normalized.some(r => r.burst_point == null));
+        console.groupEnd();
+        // ─
+        
         if (!roundsQueue || roundsQueue.length === 0) {
           setCurrentIndex(0);
         }
@@ -502,6 +514,7 @@ export default function App() {
     </div>
   );
 }
+
 
 
 
