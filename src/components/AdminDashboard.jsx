@@ -39,72 +39,15 @@ export default function AdminDashboard({ user, setMessage, onNotAdmin }) {
   const [confirmConfig, setConfirmConfig] = useState(null)
   const [stats, setStats] = useState({ totalUsers: null, totalBalanceCents: null })
   const [roundsQueueAdmin, setRoundsQueueAdmin] = useState([])
-  const [roundsQueueError, setRoundsQueueError] = useState(null)
-  const [roundsQueueLoading, setRoundsQueueLoading] = useState(false)
   const [liveRoundNumber, setLiveRoundNumber] = useState(null)
   const [recentBursted, setRecentBursted] = useState([])
   const roundChannelRef = useRef(null)
   const roundChannelReadyRef = useRef(null)
   const localBusRef = useRef(null)
-  const refillRef = useRef({ lastAt: 0 })
+  const [generatedCount, setGeneratedCount] = useState(0)
+// ...
+setGeneratedCount(prev => prev + count)
  
-  // ====================== ADMIN AUTO ROUND GENERATOR ======================
-// Generates rounds directly in admin, inserts into game_rounds, broadcasts to user page
-const generateAndBroadcastRounds = async (count = 12) => {
-  const newRounds = []
-  const baseNumber = Math.floor(Date.now() / 1000) + 1000
-
-  for (let i = 0; i < count; i++) {
-    const roundNum = baseNumber + i
-    const burst = Number((1.8 + Math.random() * 13.2).toFixed(2)) // realistic range
-
-    const round = {
-      round_id: `R${roundNum}`,
-      round_number: roundNum,
-      burst_point: burst,
-      status: i === 0 ? 'live' : 'pending',
-      starts_at: new Date(Date.now() + i * 60000).toISOString(), // 1 min apart
-      created_at: new Date().toISOString(),
-    }
-    newRounds.push(round)
-  }
-
-  try {
-    // Insert into main game_rounds table
-    const { error: insertError } = await supabase
-      .from('game_rounds')
-      .insert(newRounds)
-
-    if (insertError) {
-      console.error('Insert failed:', insertError)
-      setMessage?.({ type: 'error', text: 'Failed to generate rounds: ' + insertError.message })
-      return
-    }
-
-    // Broadcast to the user page pipeline
-    const ch = await ensureRoundChannel()
-    if (ch) {
-      ch.send({
-        type: 'broadcast',
-        event: 'rounds_update',
-        payload: { rounds: newRounds }
-      })
-    }
-
-    console.log(`Admin generated & broadcasted ${count} rounds (total generated: ${generatedCount + count})`)
-
-    // Update local admin display
-      setRoundsQueueAdmin(prev => {
-        const updated = [...prev, ...newRounds]
-        return updated.slice(-36) // keep only last 36 (3 batches) for display
-      })
-    setLiveRoundNumber(newRounds[0]?.round_number ?? null)
-
-  } catch (err) {
-    console.error('Generator crashed:', err)
-    setMessage?.({ type: 'error', text: 'Round generation error' })
-  }
-}
 
 // Auto-generate on mount + refill when low
 useEffect(() => {
@@ -132,8 +75,71 @@ useEffect(() => {
   }, 10000) // every 10 seconds
 
   return () => clearInterval(interval)
-}, [profileRole, supabase, ensureRoundChannel, setMessage, setRoundsQueueAdmin, setLiveRoundNumber])   // ← now correct, with closing } before ]
+}, [profileRole, supabase, ensureRoundChannel, setMessage, setRoundsQueueAdmin, setLiveRoundNumber])
 
+  
+    // ====================== ADMIN AUTO ROUND GENERATOR ======================
+  // Generates rounds directly in admin, inserts into game_rounds, broadcasts to user page
+  const generateAndBroadcastRounds = async (count = 12) => {
+    const newRounds = []
+    const baseNumber = Math.floor(Date.now() / 1000) + 1000
+  
+    for (let i = 0; i < count; i++) {
+      const roundNum = baseNumber + i
+      const burst = Number((1.8 + Math.random() * 13.2).toFixed(2)) // realistic range
+  
+      const round = {
+        round_id: `R${roundNum}`,
+        round_number: roundNum,
+        burst_point: burst,
+        status: i === 0 ? 'live' : 'pending',
+        starts_at: new Date(Date.now() + i * 60000).toISOString(), // 1 min apart
+        created_at: new Date().toISOString(),
+      }
+      newRounds.push(round)
+    }
+  
+    try {
+      // Insert into main game_rounds table
+      const { error: insertError } = await supabase
+        .from('game_rounds')
+        .insert(newRounds)
+  
+      if (insertError) {
+        console.error('Insert failed:', insertError)
+        setMessage?.({ type: 'error', text: 'Failed to generate rounds: ' + insertError.message })
+        return
+      }
+  
+      // Broadcast to the user page pipeline
+      const ch = await ensureRoundChannel()
+      if (ch) {
+        ch.send({
+          type: 'broadcast',
+          event: 'rounds_update',
+          payload: { rounds: newRounds }
+        })
+      }
+  
+      console.log(`Admin generated & broadcasted ${count} rounds (total generated: ${generatedCount + count})`)
+  
+      // Update local admin display
+        setRoundsQueueAdmin(prev => {
+          const updated = [...prev, ...newRounds]
+          return updated.slice(-36) // keep only last 36 (3 batches) for display
+        })
+      setLiveRoundNumber(newRounds[0]?.round_number ?? null)
+  
+    } catch (err) {
+      console.error('Generator crashed:', err)
+      setMessage?.({ type: 'error', text: 'Round generation error' })
+    }
+  }
+
+
+
+
+  
 const generateDemoRounds = useCallback(() => {
   // ... rest of the file continues normally
     const base = Math.floor(Date.now() / 1000) % 100000
@@ -275,7 +281,7 @@ const generateDemoRounds = useCallback(() => {
     setDeposits(data ?? [])
   }, [])
 
-  const fetchLedger = useCallback(async () => {
+ /* const fetchLedger = useCallback(async () => {
     setLedgerError(null)
     let q = supabase
       .from('ledger')
@@ -313,7 +319,7 @@ const generateDemoRounds = useCallback(() => {
     } catch {
       setStats({ totalUsers: null, totalBalanceCents: null })
     }
-  }, [])
+  }, []) */
 
   const fetchAdminRoundsQueue = useCallback(async () => {
     setRoundsQueueError(null)
@@ -380,11 +386,11 @@ const generateDemoRounds = useCallback(() => {
   const handleRefreshAll = useCallback(() => {
     fetchWithdrawals()
     fetchDeposits()
-    fetchLedger()
-    fetchStats()
-    fetchAdminRoundsQueue()
-  }, [fetchWithdrawals, fetchDeposits, fetchLedger, fetchStats, fetchAdminRoundsQueue])
+    //fetchLedger()
+    //fetchStats()
+  }, [fetchWithdrawals, fetchDeposits])
 
+    
   useEffect(() => {
     if (isLocalDemo) return
     if (!isSupabaseConfigured || profileRole !== 'admin') return
