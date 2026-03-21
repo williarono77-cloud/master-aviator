@@ -47,7 +47,95 @@ export default function AdminDashboard({ user, setMessage, onNotAdmin }) {
   const roundChannelReadyRef = useRef(null)
   const localBusRef = useRef(null)
   const refillRef = useRef({ lastAt: 0 })
+ 
+  // ====================== ADMIN AUTO ROUND GENERATOR ======================
+// Generates rounds directly in admin, inserts into game_rounds, broadcasts to user page
+const generateAndBroadcastRounds = async (count = 12) => {
+  const newRounds = []
+  const baseNumber = Math.floor(Date.now() / 1000) + 1000
 
+  for (let i = 0; i < count; i++) {
+    const roundNum = baseNumber + i
+    const burst = Number((1.8 + Math.random() * 13.2).toFixed(2)) // realistic range
+
+    const round = {
+      round_id: `R${roundNum}`,
+      round_number: roundNum,
+      burst_point: burst,
+      status: i === 0 ? 'live' : 'pending',
+      starts_at: new Date(Date.now() + i * 60000).toISOString(), // 1 min apart
+      created_at: new Date().toISOString(),
+    }
+    newRounds.push(round)
+  }
+
+  try {
+    // Insert into main game_rounds table
+    const { error: insertError } = await supabase
+      .from('game_rounds')
+      .insert(newRounds)
+
+    if (insertError) {
+      console.error('Insert failed:', insertError)
+      setMessage?.({ type: 'error', text: 'Failed to generate rounds: ' + insertError.message })
+      return
+    }
+
+    // Broadcast to the user page pipeline
+    const ch = await ensureRoundChannel()
+    if (ch) {
+      ch.send({
+        type: 'broadcast',
+        event: 'rounds_update',
+        payload: { rounds: newRounds }
+      })
+    }
+
+    console.log(`Admin generated & broadcasted ${count} rounds (total generated: ${generatedCount + count})`)
+
+    // Update local admin display
+      setRoundsQueueAdmin(prev => {
+        const updated = [...prev, ...newRounds]
+        return updated.slice(-36) // keep only last 36 (3 batches) for display
+      })
+    setLiveRoundNumber(newRounds[0]?.round_number ?? null)
+
+  } catch (err) {
+    console.error('Generator crashed:', err)
+    setMessage?.({ type: 'error', text: 'Round generation error' })
+  }
+}
+
+// Auto-generate on mount + refill when low
+useEffect(() => {
+  if (profileRole !== 'admin') return
+
+  // Initial batch
+  generateAndBroadcastRounds(12)
+
+  // Refill check
+  const interval = setInterval(async () => {
+    const { data, error } = await supabase
+      .from('game_rounds')
+      .select('round_number, status')
+      .in('status', ['live', 'pending'])
+      .order('round_number', { ascending: true })
+      .limit(8)
+
+    if (error) return
+
+    const remaining = data?.length ?? 0
+    if (remaining <= 3) {
+      console.log(`Low rounds (${remaining}) → generating 12 more`)
+      generateAndBroadcastRounds(12)
+    }
+  }, 10000) // every 10 seconds
+
+  return () => clearInterval(interval)
+  }, [profileRole, supabase, ensureRoundChannel, setMessage, setRoundsQueueAdmin, setLiveRoundNumber])
+
+
+  
   const generateDemoRounds = useCallback(() => {
     const base = Math.floor(Date.now() / 1000) % 100000
     return Array.from({ length: DEMO_ROUNDS }).map((_, i) => {
@@ -289,19 +377,6 @@ export default function AdminDashboard({ user, setMessage, onNotAdmin }) {
   }, [])
 
   // Auto-refill scheduled queue when it drops below 3
-  useEffect(() => {
-    if (profileRole !== 'admin') return
-    if (roundsQueueLoading) return
-    const len = roundsQueueAdmin?.length ?? 0
-    if (len >= 3) return
-
-    const now = Date.now()
-    if (now - (refillRef.current.lastAt ?? 0) < 1000) return
-    refillRef.current.lastAt = now
-
-    // #region agent log
-    fetch('http://127.0.0.1:7248/ingest/ccb9a303-8bba-4649-af2b-757346558fd4',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({runId:'admin-refill',hypothesisId:'H5',location:'src/components/AdminDashboard.jsx:refill',message:'scheduled queue below 3 -> refetch',data:{len,isLocalDemo},timestamp:Date.now()})}).catch(()=>{});
-    // #endregion
 
     fetchAdminRoundsQueue()
   }, [profileRole, roundsQueueAdmin, roundsQueueLoading, fetchAdminRoundsQueue, isLocalDemo])
@@ -502,6 +577,25 @@ export default function AdminDashboard({ user, setMessage, onNotAdmin }) {
         </nav>
       </header>
 
+      <div style={{ margin: '1rem 0', display: 'flex', gap: '1rem' }}>
+          <button 
+            type="button" 
+            className="admin-dashboard__btn admin-dashboard__btn--primary"
+            onClick={() => generateAndBroadcastRounds(12)}
+          >
+            Generate 12 Rounds Now
+          </button>
+          <button 
+            type="button" 
+            className="admin-dashboard__btn admin-dashboard__btn--secondary"
+            onClick={() => generateAndBroadcastRounds(1)}
+          >
+            Force Next Round
+          </button>
+        </div>
+
+
+      
       {/* Analytics */}
       <section className="admin-dashboard__grid" aria-label="Analytics">
         <div className="admin-dashboard__card">
