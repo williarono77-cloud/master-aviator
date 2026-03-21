@@ -132,11 +132,10 @@ useEffect(() => {
   }, 10000) // every 10 seconds
 
   return () => clearInterval(interval)
-  }, [profileRole, supabase, ensureRoundChannel, setMessage, setRoundsQueueAdmin, setLiveRoundNumber])
+}, [profileRole, supabase, ensureRoundChannel, setMessage, setRoundsQueueAdmin, setLiveRoundNumber])   // ← now correct, with closing } before ]
 
-
-  
-  const generateDemoRounds = useCallback(() => {
+const generateDemoRounds = useCallback(() => {
+  // ... rest of the file continues normally
     const base = Math.floor(Date.now() / 1000) % 100000
     return Array.from({ length: DEMO_ROUNDS }).map((_, i) => {
       const round_number = base + i + 1
@@ -377,9 +376,6 @@ useEffect(() => {
   }, [])
 
   // Auto-refill scheduled queue when it drops below 3
-
-    fetchAdminRoundsQueue()
-  }, [profileRole, roundsQueueAdmin, roundsQueueLoading, fetchAdminRoundsQueue, isLocalDemo])
 
   const handleRefreshAll = useCallback(() => {
     fetchWithdrawals()
