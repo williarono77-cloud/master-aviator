@@ -142,7 +142,8 @@ export default function App() {
 
   function fetchAndSetRole(uid, cancelledRef) {
     if (!uid) return;
-    setRole(getAuthRole(uid) ?? null);
+    setRole(null);
+  
     supabase
       .from("profiles")
       .select("role")
@@ -150,14 +151,34 @@ export default function App() {
       .maybeSingle()
       .then(({ data, error }) => {
         if (cancelledRef?.current) return;
+  
         if (error) {
           console.error("Profile role fetch failed", error);
           setRole((prev) => prev ?? "user");
           return;
         }
-        const r = data?.role === "admin" ? "admin" : "user";
+  
+        const normalizedRole =
+          typeof data?.role === "string"
+            ? data.role.trim().toLowerCase()
+            : null;
+  
+        const r = normalizedRole === "admin" ? "admin" : "user";
+  
+        console.log("App.jsx: fetched profile role", {
+          uid,
+          rawRole: data?.role ?? null,
+          normalizedRole,
+          appliedRole: r,
+        });
+  
         setRole(r);
         setAuthRole(uid, r);
+      })
+      .catch((err) => {
+        if (cancelledRef?.current) return;
+        console.error("Profile role fetch failed after login", err);
+        setRole((prev) => prev ?? "user");
       });
   }
 
@@ -238,35 +259,54 @@ export default function App() {
       // <<< NEW: Bootstrap if DB is empty >>>
       const bootstrapReal = async () => {
         // Try to load existing live round
-        const { data } = await supabase
-          .from('game_rounds')
-          .select('*')
-          .eq('status', 'live')
-          .order('created_at', { ascending: false })
-          .limit(5);
+      const { data, error } = await supabase
+        .from("game_rounds")
+        .select("*")
+        .eq("status", "live")
+        .order("created_at", { ascending: false })
+        .limit(5);
+      
+      if (error) {
+        console.error("bootstrapReal: failed loading live rounds", error);
+        return;
+      }
   
         if (data && data.length > 0) {
           handleRoundsUpdate(data);
-          supabase.channel("round-sync").send({
-            type: 'broadcast',
-            event: 'rounds_update',
-            payload: { rounds: data }
-          });
+        
+          if (supabaseChannel) {
+            supabaseChannel.send({
+              type: "broadcast",
+              event: "rounds_update",
+              payload: { rounds: data },
+            });
+          }
         } else {
-          // No live round → create one automatically (graceful fallback)
-          console.log("No live round found – auto-creating demo live round");
-          const tempRound = {
-            id: "auto-" + Date.now(),
-            round_id: "R1001",
-            round_number: 1001,
-            burst_point: 5.67,
-            status: "live",
-            starts_at: new Date().toISOString()
-          };
-          handleRoundsUpdate([tempRound]);
-          // Optional: also insert to DB for persistence
-          await supabase.from('game_rounds').insert(tempRound).ignore();
+        // No live round → create one automatically (graceful fallback)
+        console.log("No live round found – auto-creating demo live round");
+      
+        const now = Date.now();
+        const tempRound = {
+          round_id: `R${now}`,
+          round_number: now,
+          burst_point: 5.67,
+          status: "live",
+          starts_at: new Date().toISOString(),
+        };
+      
+        handleRoundsUpdate([tempRound]);
+      
+        const { error: insertError } = await supabase
+          .from("game_rounds")
+          .upsert([tempRound], {
+            onConflict: "round_id",
+            ignoreDuplicates: true,
+          });
+      
+        if (insertError) {
+          console.error("bootstrapReal: failed to persist fallback round", insertError);
         }
+      }
       };
       bootstrapReal();
     }
