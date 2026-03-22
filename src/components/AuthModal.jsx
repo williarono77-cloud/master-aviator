@@ -82,32 +82,40 @@ export default function AuthModal({ isOpen, onClose, onSuccess }) {
         setRegisterEmailSent(true)
         return
       }
-      const { data: signInData, error: err } = await supabase.auth.signInWithPassword({ email: email.trim(), password })
-      if (err) throw err
-      setError(null)
-            
-        // 🔥 FORCE fresh role check every single login (fixes your manual SQL updates)
-        clearAuthRole();
-      // Check if user is admin and redirect to admin page
-      if (signInData?.user?.id) {
-        const { data: profile, error: profileError } = await supabase
-          .from('profiles')
-          .select('role')
-          .eq('id', signInData.user.id)
-          .maybeSingle() 
-
-        if (profileError) {
-          console.error('Profile role fetch failed after login', profileError)
-        }
-        if (!profileError && profile?.role === 'admin') {
-          onClose()
-          window.location.replace('/admin.html')
-          return
-        }
+    const { data: signInData, error: err } = await supabase.auth.signInWithPassword({
+      email: email.trim(),
+      password,
+    })
+    if (err) throw err
+    setError(null)
+    
+    // Always clear cached role on fresh login
+    clearAuthRole()
+    
+    let resolvedRole = 'user'
+    
+    if (signInData?.user?.id) {
+      const { data: profile, error: profileError } = await supabase
+        .from('profiles')
+        .select('role')
+        .eq('id', signInData.user.id)
+        .maybeSingle()
+    
+      if (profileError) {
+        console.error('Profile role fetch failed after login', profileError)
+      } else if (profile?.role === 'admin') {
+        resolvedRole = 'admin'
       }
-      
-      onSuccess?.()
-      onClose()
+    }
+    
+    onClose()
+    
+    if (resolvedRole === 'admin') {
+      window.location.replace('/admin.html')
+      return
+    }
+    
+    onSuccess?.()
     } catch (err) {
       setError(authErrorMessage(err))
     } finally {
