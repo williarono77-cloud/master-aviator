@@ -202,13 +202,26 @@ const generateAndBroadcastRounds = useCallback(async (count = 12) => {
         .maybeSingle()
         .then(({ data, error }) => {
           if (cancelled) return
+        
           if (error) {
             console.error('AdminDashboard: profile role fetch failed', error)
             setMessage?.({ type: 'error', text: 'Could not verify access.' })
             setProfileRole(null)
             return
           }
-          setProfileRole(data?.role ?? null)
+        
+          const normalizedRole =
+            typeof data?.role === 'string'
+              ? data.role.trim().toLowerCase()
+              : null
+        
+          console.log('AdminDashboard: fetched profile role', {
+            userId: user.id,
+            rawRole: data?.role ?? null,
+            normalizedRole,
+          })
+        
+          setProfileRole(normalizedRole)
         })
         .catch((err) => {
           if (cancelled) return
