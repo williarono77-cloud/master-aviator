@@ -340,6 +340,15 @@ export default function App() {
     refreshPrivateData();
   }, [userId, refreshPrivateData]);
 
+  // Redirect admins to the dedicated admin app
+  useEffect(() => {
+    if (loading) return;
+    if (!session?.user?.id) return;
+    if (role !== "admin") return;
+  
+    window.location.replace("/admin.html");
+  }, [loading, session, role]);
+
   // Realtime: wallets
   useEffect(() => {
     if (!userId || !isSupabaseConfigured) return;
