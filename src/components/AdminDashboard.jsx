@@ -86,89 +86,101 @@ const generateDemoRounds = useCallback(() => {
     return ch
   }, [])
 
-const generateAndBroadcastRounds = useCallback(async (count = 12) => {
-  const newRounds = []
-  const baseNumber = Math.floor(Date.now() / 1000) + 1000
-
-  for (let i = 0; i < count; i++) {
-    const roundNum = baseNumber + i
-    const burst = Number((1.8 + Math.random() * 13.2).toFixed(2))
-
-    const round = {
-      round_id: `R${roundNum}`,
-      round_number: roundNum,
-      burst_point: burst,
-      status: i === 0 ? 'live' : 'pending',
-      starts_at: new Date(Date.now() + i * 60000).toISOString(),
-      created_at: new Date().toISOString(),
-    }
-
-    newRounds.push(round)
-  }
-
-  try {
-    const { error: insertError } = await supabase
-      .from('game_rounds')
-      .insert(newRounds)
-
-    if (insertError) {
-      console.error('Insert failed:', insertError)
-      setMessage?.({ type: 'error', text: 'Failed to generate rounds: ' + insertError.message })
-      return
-    }
-
-    const ch = await ensureRoundChannel()
-    if (ch) {
-      ch.send({
-        type: 'broadcast',
-        event: 'rounds_update',
-        payload: { rounds: newRounds },
+  const generateAndBroadcastRounds = useCallback(async (count = 12) => {
+    try {
+      const { data: latestRound, error: latestRoundError } = await supabase
+        .from('game_rounds')
+        .select('round_number')
+        .order('round_number', { ascending: false })
+        .limit(1)
+        .maybeSingle()
+  
+      if (latestRoundError) {
+        console.error('Failed to read latest round:', latestRoundError)
+        setMessage?.({ type: 'error', text: 'Failed to read latest round number.' })
+        return
+      }
+  
+      const nextRoundNumberStart = (latestRound?.round_number ?? 0) + 1
+      const now = Date.now()
+      const createdAt = new Date().toISOString()
+  
+      const newRounds = Array.from({ length: count }, (_, i) => {
+        const roundNumber = nextRoundNumberStart + i
+        const burst = Number((1.8 + Math.random() * 13.2).toFixed(2))
+  
+        return {
+          round_id: crypto.randomUUID(),
+          round_number: roundNumber,
+          burst_point: burst,
+          status: i === 0 ? 'live' : 'pending',
+          starts_at: new Date(now + i * 60000).toISOString(),
+          created_at: createdAt,
+        }
       })
+  
+      const { error: insertError } = await supabase
+        .from('game_rounds')
+        .insert(newRounds)
+  
+      if (insertError) {
+        console.error('Insert failed:', insertError)
+        setMessage?.({ type: 'error', text: 'Failed to generate rounds: ' + insertError.message })
+        return
+      }
+  
+      const ch = await ensureRoundChannel()
+      if (ch) {
+        ch.send({
+          type: 'broadcast',
+          event: 'rounds_update',
+          payload: { rounds: newRounds },
+        })
+      }
+  
+      setGeneratedCount((prev) => {
+        const next = prev + count
+        console.log(`Admin generated & broadcasted ${count} rounds (total generated: ${next})`)
+        return next
+      })
+  
+      setRoundsQueueAdmin((prev) => {
+        const updated = [...prev, ...newRounds]
+        return updated.slice(-36)
+      })
+  
+      setLiveRoundNumber(newRounds[0]?.round_number ?? null)
+    } catch (err) {
+      console.error('Generator crashed:', err)
+      setMessage?.({ type: 'error', text: 'Round generation error' })
     }
-
-    setGeneratedCount((prev) => {
-      const next = prev + count
-      console.log(`Admin generated & broadcasted ${count} rounds (total generated: ${next})`)
-      return next
-    })
-
-    setRoundsQueueAdmin((prev) => {
-      const updated = [...prev, ...newRounds]
-      return updated.slice(-36)
-    })
-
-    setLiveRoundNumber(newRounds[0]?.round_number ?? null)
-  } catch (err) {
-    console.error('Generator crashed:', err)
-    setMessage?.({ type: 'error', text: 'Round generation error' })
-  }
-}, [ensureRoundChannel, setMessage])
+  }, [ensureRoundChannel, setMessage])
 
     // Auto-generate on mount + refill when low
-    useEffect(() => {
-      if (profileRole !== 'admin') return
+  useEffect(() => {
+    if (profileRole !== 'admin') return
   
-      generateAndBroadcastRounds(12)
+    generateAndBroadcastRounds(12)
   
-      const interval = setInterval(async () => {
-        const { data, error } = await supabase
-          .from('game_rounds')
-          .select('round_number, status')
-          .in('status', ['live', 'pending'])
-          .order('round_number', { ascending: true })
-          .limit(8)
+    const interval = setInterval(async () => {
+      const { data, error } = await supabase
+        .from('game_rounds')
+        .select('round_number, status')
+        .in('status', ['live', 'pending'])
+        .order('round_number', { ascending: true })
+        .limit(8)
   
-        if (error) return
+      if (error) return
   
-        const remaining = data?.length ?? 0
-        if (remaining <= 3) {
-          console.log(`Low rounds (${remaining}) → generating 12 more`)
-          generateAndBroadcastRounds(12)
-        }
-      }, 10000)
+      const remaining = data?.length ?? 0
+      if (remaining <= 3) {
+        console.log(`Low rounds (${remaining}) → generating 12 more`)
+        generateAndBroadcastRounds(12)
+      }
+    }, 10000)
   
-      return () => clearInterval(interval)
-    }, [profileRole, generateAndBroadcastRounds])
+    return () => clearInterval(interval)
+  }, [profileRole, generateAndBroadcastRounds])
 
   
   const handleLogout = useCallback(async () => {
