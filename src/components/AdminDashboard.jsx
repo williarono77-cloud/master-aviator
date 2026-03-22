@@ -39,6 +39,8 @@ export default function AdminDashboard({ user, setMessage, onNotAdmin }) {
   const [confirmConfig, setConfirmConfig] = useState(null)
   const [stats, setStats] = useState({ totalUsers: null, totalBalanceCents: null })
   const [roundsQueueAdmin, setRoundsQueueAdmin] = useState([])
+  const [roundsQueueError, setRoundsQueueError] = useState(null)
+  const [roundsQueueLoading, setRoundsQueueLoading] = useState(false)
   const [liveRoundNumber, setLiveRoundNumber] = useState(null)
   const [recentBursted, setRecentBursted] = useState([])
   const roundChannelRef = useRef(null)
@@ -46,100 +48,8 @@ export default function AdminDashboard({ user, setMessage, onNotAdmin }) {
   const localBusRef = useRef(null)
   const [generatedCount, setGeneratedCount] = useState(0)
 // ...
-setGeneratedCount(prev => prev + count)
- 
-
-// Auto-generate on mount + refill when low
-useEffect(() => {
-  if (profileRole !== 'admin') return
-
-  // Initial batch
-  generateAndBroadcastRounds(12)
-
-  // Refill check
-  const interval = setInterval(async () => {
-    const { data, error } = await supabase
-      .from('game_rounds')
-      .select('round_number, status')
-      .in('status', ['live', 'pending'])
-      .order('round_number', { ascending: true })
-      .limit(8)
-
-    if (error) return
-
-    const remaining = data?.length ?? 0
-    if (remaining <= 3) {
-      console.log(`Low rounds (${remaining}) → generating 12 more`)
-      generateAndBroadcastRounds(12)
-    }
-  }, 10000) // every 10 seconds
-
-  return () => clearInterval(interval)
-}, [profileRole, supabase, ensureRoundChannel, setMessage, setRoundsQueueAdmin, setLiveRoundNumber])
-
-  
-    // ====================== ADMIN AUTO ROUND GENERATOR ======================
-  // Generates rounds directly in admin, inserts into game_rounds, broadcasts to user page
-  const generateAndBroadcastRounds = async (count = 12) => {
-    const newRounds = []
-    const baseNumber = Math.floor(Date.now() / 1000) + 1000
-  
-    for (let i = 0; i < count; i++) {
-      const roundNum = baseNumber + i
-      const burst = Number((1.8 + Math.random() * 13.2).toFixed(2)) // realistic range
-  
-      const round = {
-        round_id: `R${roundNum}`,
-        round_number: roundNum,
-        burst_point: burst,
-        status: i === 0 ? 'live' : 'pending',
-        starts_at: new Date(Date.now() + i * 60000).toISOString(), // 1 min apart
-        created_at: new Date().toISOString(),
-      }
-      newRounds.push(round)
-    }
-  
-    try {
-      // Insert into main game_rounds table
-      const { error: insertError } = await supabase
-        .from('game_rounds')
-        .insert(newRounds)
-  
-      if (insertError) {
-        console.error('Insert failed:', insertError)
-        setMessage?.({ type: 'error', text: 'Failed to generate rounds: ' + insertError.message })
-        return
-      }
-  
-      // Broadcast to the user page pipeline
-      const ch = await ensureRoundChannel()
-      if (ch) {
-        ch.send({
-          type: 'broadcast',
-          event: 'rounds_update',
-          payload: { rounds: newRounds }
-        })
-      }
-  
-      console.log(`Admin generated & broadcasted ${count} rounds (total generated: ${generatedCount + count})`)
-  
-      // Update local admin display
-        setRoundsQueueAdmin(prev => {
-          const updated = [...prev, ...newRounds]
-          return updated.slice(-36) // keep only last 36 (3 batches) for display
-        })
-      setLiveRoundNumber(newRounds[0]?.round_number ?? null)
-  
-    } catch (err) {
-      console.error('Generator crashed:', err)
-      setMessage?.({ type: 'error', text: 'Round generation error' })
-    }
-  }
 
 
-
-
-  
 const generateDemoRounds = useCallback(() => {
   // ... rest of the file continues normally
     const base = Math.floor(Date.now() / 1000) % 100000
@@ -176,6 +86,91 @@ const generateDemoRounds = useCallback(() => {
     return ch
   }, [])
 
+const generateAndBroadcastRounds = useCallback(async (count = 12) => {
+  const newRounds = []
+  const baseNumber = Math.floor(Date.now() / 1000) + 1000
+
+  for (let i = 0; i < count; i++) {
+    const roundNum = baseNumber + i
+    const burst = Number((1.8 + Math.random() * 13.2).toFixed(2))
+
+    const round = {
+      round_id: `R${roundNum}`,
+      round_number: roundNum,
+      burst_point: burst,
+      status: i === 0 ? 'live' : 'pending',
+      starts_at: new Date(Date.now() + i * 60000).toISOString(),
+      created_at: new Date().toISOString(),
+    }
+
+    newRounds.push(round)
+  }
+
+  try {
+    const { error: insertError } = await supabase
+      .from('game_rounds')
+      .insert(newRounds)
+
+    if (insertError) {
+      console.error('Insert failed:', insertError)
+      setMessage?.({ type: 'error', text: 'Failed to generate rounds: ' + insertError.message })
+      return
+    }
+
+    const ch = await ensureRoundChannel()
+    if (ch) {
+      ch.send({
+        type: 'broadcast',
+        event: 'rounds_update',
+        payload: { rounds: newRounds },
+      })
+    }
+
+    setGeneratedCount((prev) => {
+      const next = prev + count
+      console.log(`Admin generated & broadcasted ${count} rounds (total generated: ${next})`)
+      return next
+    })
+
+    setRoundsQueueAdmin((prev) => {
+      const updated = [...prev, ...newRounds]
+      return updated.slice(-36)
+    })
+
+    setLiveRoundNumber(newRounds[0]?.round_number ?? null)
+  } catch (err) {
+    console.error('Generator crashed:', err)
+    setMessage?.({ type: 'error', text: 'Round generation error' })
+  }
+}, [ensureRoundChannel, setMessage])
+
+    // Auto-generate on mount + refill when low
+    useEffect(() => {
+      if (profileRole !== 'admin') return
+  
+      generateAndBroadcastRounds(12)
+  
+      const interval = setInterval(async () => {
+        const { data, error } = await supabase
+          .from('game_rounds')
+          .select('round_number, status')
+          .in('status', ['live', 'pending'])
+          .order('round_number', { ascending: true })
+          .limit(8)
+  
+        if (error) return
+  
+        const remaining = data?.length ?? 0
+        if (remaining <= 3) {
+          console.log(`Low rounds (${remaining}) → generating 12 more`)
+          generateAndBroadcastRounds(12)
+        }
+      }, 10000)
+  
+      return () => clearInterval(interval)
+    }, [profileRole, generateAndBroadcastRounds])
+
+  
   const handleLogout = useCallback(async () => {
     await supabase.auth.signOut()
     window.location.replace('/')
@@ -281,45 +276,57 @@ const generateDemoRounds = useCallback(() => {
     setDeposits(data ?? [])
   }, [])
 
- /* const fetchLedger = useCallback(async () => {
-    setLedgerError(null)
-    let q = supabase
-      .from('ledger')
-      .select('id, user_id, type, amount_cents, before_available_cents, after_available_cents, before_locked_cents, after_locked_cents, created_at, reference_table, reference_id')
-      .order('created_at', { ascending: false })
-      .limit(LEDGER_LIMIT)
-    if (ledgerUserId?.trim()) {
-      q = q.eq('user_id', ledgerUserId.trim())
-    }
-    const { data, error } = await q
-    if (error) {
-      setLedgerError(error.message)
-      setLedger([])
+const fetchLedger = useCallback(async () => {
+  setLedgerError(null)
+
+  let q = supabase
+    .from('ledger')
+    .select('id, user_id, type, amount_cents, before_available_cents, after_available_cents, before_locked_cents, after_locked_cents, created_at, reference_table, reference_id')
+    .order('created_at', { ascending: false })
+    .limit(LEDGER_LIMIT)
+
+  if (ledgerUserId?.trim()) {
+    q = q.eq('user_id', ledgerUserId.trim())
+  }
+
+  const { data, error } = await q
+
+  if (error) {
+    setLedgerError(error.message)
+    setLedger([])
+    return
+  }
+
+  setLedger(data ?? [])
+}, [ledgerUserId])
+  
+  const fetchStats = useCallback(async () => {
+  try {
+    const [profilesRes, walletsRes] = await Promise.all([
+      supabase.from('profiles').select('*', { count: 'exact', head: true }),
+      supabase.from('wallets').select('available_cents, locked_cents'),
+    ])
+
+    if (profilesRes?.error || walletsRes?.error) {
+      setStats({ totalUsers: null, totalBalanceCents: null })
       return
     }
-    setLedger(data ?? [])
-  }, [ledgerUserId])
 
-  const fetchStats = useCallback(async () => {
-    try {
-      const [profilesRes, walletsRes] = await Promise.all([
-        supabase.from('profiles').select('*', { count: 'exact', head: true }),
-        supabase.from('wallets').select('available_cents, locked_cents'),
-      ])
-      if (profilesRes?.error || walletsRes?.error) {
-        setStats({ totalUsers: null, totalBalanceCents: null })
-        return
-      }
-      const totalUsers = profilesRes?.count ?? 0
-      let totalBalanceCents = 0
-      if (walletsRes?.data && Array.isArray(walletsRes.data)) {
-        totalBalanceCents = walletsRes.data.reduce((s, w) => s + (w.available_cents ?? 0) + (w.locked_cents ?? 0), 0)
-      }
-      setStats({ totalUsers, totalBalanceCents })
-    } catch {
-      setStats({ totalUsers: null, totalBalanceCents: null })
+    const totalUsers = profilesRes?.count ?? 0
+    let totalBalanceCents = 0
+
+    if (walletsRes?.data && Array.isArray(walletsRes.data)) {
+      totalBalanceCents = walletsRes.data.reduce(
+        (sum, wallet) => sum + (wallet.available_cents ?? 0) + (wallet.locked_cents ?? 0),
+        0
+      )
     }
-  }, []) */
+
+    setStats({ totalUsers, totalBalanceCents })
+  } catch {
+    setStats({ totalUsers: null, totalBalanceCents: null })
+  }
+}, [])
 
   const fetchAdminRoundsQueue = useCallback(async () => {
     setRoundsQueueError(null)
@@ -386,67 +393,96 @@ const generateDemoRounds = useCallback(() => {
   const handleRefreshAll = useCallback(() => {
     fetchWithdrawals()
     fetchDeposits()
-    //fetchLedger()
-    //fetchStats()
+    fetchLedger()
+    fetchStats()
   }, [fetchWithdrawals, fetchDeposits])
 
     
-  useEffect(() => {
-    if (isLocalDemo) return
-    if (!isSupabaseConfigured || profileRole !== 'admin') return
-    fetchWithdrawals()
-    fetchDeposits()
-    fetchLedger()
-    fetchStats()
-    fetchAdminRoundsQueue()
-  }, [profileRole, fetchWithdrawals, fetchDeposits, fetchLedger, fetchStats, fetchAdminRoundsQueue])
+ useEffect(() => {
+  if (isLocalDemo) return
+  if (!isSupabaseConfigured || profileRole !== 'admin') return
 
+  fetchWithdrawals()
+  fetchDeposits()
+  fetchLedger()
+  fetchStats()
+  fetchAdminRoundsQueue()
+}, [
+  isLocalDemo,
+  isSupabaseConfigured,
+  profileRole,
+  fetchWithdrawals,
+  fetchDeposits,
+  fetchLedger,
+  fetchStats,
+  fetchAdminRoundsQueue,
+])
+  
   // Realtime: withdrawal_requests and deposits
-  useEffect(() => {
-    if (!isSupabaseConfigured || profileRole !== 'admin') return
-    const channel = supabase
-      .channel('admin-updates')
-      .on(
-        'postgres_changes',
-        { event: '*', schema: 'public', table: 'withdrawal_requests' },
-        () => fetchWithdrawals()
-      )
-      .subscribe()
-    return () => supabase.removeChannel(channel)
-  }, [profileRole, fetchWithdrawals, fetchDeposits])
+ useEffect(() => {
+  if (isLocalDemo) return
+  if (!isSupabaseConfigured || profileRole !== 'admin') return
+
+  const channel = supabase
+    .channel('admin-updates')
+    .on(
+      'postgres_changes',
+      { event: '*', schema: 'public', table: 'withdrawal_requests' },
+      () => fetchWithdrawals()
+    )
+    .on(
+      'postgres_changes',
+      { event: '*', schema: 'public', table: 'deposits' },
+      () => fetchDeposits()
+    )
+    .subscribe()
+
+  return () => {
+    supabase.removeChannel(channel)
+  }
+}, [isLocalDemo, isSupabaseConfigured, profileRole, fetchWithdrawals, fetchDeposits])
 
   // Realtime: round sync from user page (live / bursted events)
-  useEffect(() => {
-    if (isLocalDemo) return
-    if (!isSupabaseConfigured || profileRole !== 'admin') return
-    const channel = supabase
-      .channel('round-sync')
-      .on('broadcast', { event: 'round_state' }, (payload) => {
-        const p = payload?.payload
-        if (!p) return
-        const rn = p.round_number ?? null
-        const state = p.state
-        // #region agent log
-        fetch('http://127.0.0.1:7248/ingest/ccb9a303-8bba-4649-af2b-757346558fd4',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({runId:'admin-roundstate',hypothesisId:'H4',location:'src/components/AdminDashboard.jsx:round_state',message:'received round_state (supabase)',data:{state,rn,burst_point:p.burst_point??null,queueLen:roundsQueueAdmin.length},timestamp:Date.now()})}).catch(()=>{});
-        // #endregion
-        if (import.meta.env?.DEV) {
-          console.log('[AdminDashboard] round_state:', state, 'round_number:', rn)
-        }
-        applyRoundState(state, rn)
-      })
-      .subscribe()
-    roundChannelRef.current = channel
-    // also mark ready if someone is awaiting ensureRoundChannel()
-    roundChannelReadyRef.current = roundChannelReadyRef.current || Promise.resolve('SUBSCRIBED')
+useEffect(() => {
+  if (isLocalDemo) return
+  if (!isSupabaseConfigured || profileRole !== 'admin') return
 
-    return () => {
-      supabase.removeChannel(channel)
-      if (roundChannelRef.current === channel) {
+  let cancelled = false
+  let activeChannel = null
+
+  ;(async () => {
+    const channel = await ensureRoundChannel()
+    if (!channel || cancelled) return
+
+    activeChannel = channel
+
+    channel.on('broadcast', { event: 'round_state' }, (payload) => {
+      const p = payload?.payload
+      if (!p) return
+
+      const rn = p.round_number ?? null
+      const state = p.state
+
+      if (import.meta.env?.DEV) {
+        console.log('[AdminDashboard] round_state:', state, 'round_number:', rn)
+      }
+
+      applyRoundState(state, rn)
+    })
+  })()
+
+  return () => {
+    cancelled = true
+    if (activeChannel) {
+      supabase.removeChannel(activeChannel)
+      if (roundChannelRef.current === activeChannel) {
         roundChannelRef.current = null
       }
+      roundChannelReadyRef.current = null
     }
-  }, [profileRole, applyRoundState, roundsQueueAdmin.length, isSupabaseConfigured, isLocalDemo])
-
+  }
+}, [isLocalDemo, isSupabaseConfigured, profileRole, ensureRoundChannel, applyRoundState])
+ 
   // Local realtime: receive round_state when no Supabase
   useEffect(() => {
     if (!isLocalDemo) return
@@ -459,9 +495,8 @@ const generateDemoRounds = useCallback(() => {
       const p = msg?.payload
       const rn = p?.round_number ?? null
       const state = p?.state
-      // #region agent log
-      fetch('http://127.0.0.1:7248/ingest/ccb9a303-8bba-4649-af2b-757346558fd4',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({runId:'admin-roundstate',hypothesisId:'H4',location:'src/components/AdminDashboard.jsx:localRoundState',message:'received round_state (local)',data:{state,rn,burst_point:p?.burst_point??null,queueLen:roundsQueueAdmin.length},timestamp:Date.now()})}).catch(()=>{});
-      // #endregion
+
+      
       applyRoundState(state, rn)
     }
     return () => {
@@ -678,7 +713,7 @@ const generateDemoRounds = useCallback(() => {
                 const accent = isLive ? 'var(--accent-green)' : 'var(--accent-blue, #3b82f6)'
                 return (
                 <div
-                  key={r?.id ?? rn ?? Math.random()}
+                  key={r?.id ?? rn}
                   style={{
                     minWidth: '140px',
                     padding: '0.5rem 0.75rem',
