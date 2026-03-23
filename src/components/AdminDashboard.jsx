@@ -43,9 +43,7 @@ export default function AdminDashboard({ user, setMessage, onNotAdmin }) {
   const [roundsQueueLoading, setRoundsQueueLoading] = useState(false)
   const [liveRoundNumber, setLiveRoundNumber] = useState(null)
   const [recentBursted, setRecentBursted] = useState([])
-  const roundChannelRef = useRef(null)
-  const roundChannelReadyRef = useRef(null)
-  const localBusRef = useRef(null)
+  const isGeneratingRef = useRef(false)
   const [generatedCount, setGeneratedCount] = useState(0)
 // ...
 
@@ -60,33 +58,15 @@ const generateDemoRounds = useCallback(() => {
     })
   }, [])
 
-  const ensureRoundChannel = useCallback(async () => {
-    if (!isSupabaseConfigured) return null
-    if (roundChannelRef.current) return roundChannelRef.current
 
-    const ch = supabase.channel('round-sync')
-    roundChannelRef.current = ch
-
-    // Subscribe once and share the promise so callers can await readiness.
-    roundChannelReadyRef.current =
-      roundChannelReadyRef.current ||
-      new Promise((resolve) => {
-        try {
-          ch.subscribe((status) => {
-            if (status === 'SUBSCRIBED' || status === 'TIMED_OUT' || status === 'CLOSED') {
-              resolve(status)
-            }
-          })
-        } catch {
-          resolve('ERROR')
-        }
-      })
-
-    await roundChannelReadyRef.current
-    return ch
-  }, [])
-
-  const generateAndBroadcastRounds = useCallback(async (count = 12) => {
+    const generateAndBroadcastRounds = useCallback(async (count = 12) => {
+    if (isGeneratingRef.current) {
+      console.warn('Generation already in progress — skipping')
+      return
+    }
+  
+    isGeneratingRef.current = true
+  
     try {
       const { data: latestRound, error: latestRoundError } = await supabase
         .from('game_rounds')
@@ -102,19 +82,17 @@ const generateDemoRounds = useCallback(() => {
       }
   
       const nextRoundNumberStart = (latestRound?.round_number ?? 0) + 1
-      const now = Date.now()
       const createdAt = new Date().toISOString()
   
       const newRounds = Array.from({ length: count }, (_, i) => {
         const roundNumber = nextRoundNumberStart + i
         const burst = Number((1.8 + Math.random() * 13.2).toFixed(2))
-  
+      
         return {
           round_id: crypto.randomUUID(),
           round_number: roundNumber,
           burst_point: burst,
-          status: i === 0 ? 'live' : 'pending',
-          starts_at: new Date(now + i * 60000).toISOString(),
+          status: 'waiting', // ✅ ALL rounds start as waiting
           created_at: createdAt,
         }
       })
@@ -128,15 +106,7 @@ const generateDemoRounds = useCallback(() => {
         setMessage?.({ type: 'error', text: 'Failed to generate rounds: ' + insertError.message })
         return
       }
-  
-      const ch = await ensureRoundChannel()
-      if (ch) {
-        ch.send({
-          type: 'broadcast',
-          event: 'rounds_update',
-          payload: { rounds: newRounds },
-        })
-      }
+
   
       setGeneratedCount((prev) => {
         const next = prev + count
@@ -144,21 +114,19 @@ const generateDemoRounds = useCallback(() => {
         return next
       })
   
-      setRoundsQueueAdmin((prev) => {
-        const updated = [...prev, ...newRounds]
-        return updated.slice(-36)
-      })
+    setRoundsQueueAdmin(newRounds)
   
       setLiveRoundNumber(newRounds[0]?.round_number ?? null)
-    } catch (err) {
-      console.error('Generator crashed:', err)
-      setMessage?.({ type: 'error', text: 'Round generation error' })
-    }
-  }, [ensureRoundChannel, setMessage])
+  } catch (err) {
+    console.error('Generator crashed:', err)
+    setMessage?.({ type: 'error', text: 'Round generation error' })
+  } finally {
+    isGeneratingRef.current = false
+  }
+  }, [setMessage])
 
-    // Auto-generate on mount + refill when low
-  useEffect(() => {
-    if (profileRole !== 'admin') return
+ useEffect(() => {
+    if (!isSupabaseConfigured || profileRole !== 'admin') return
   
     generateAndBroadcastRounds(12)
   
@@ -166,7 +134,7 @@ const generateDemoRounds = useCallback(() => {
       const { data, error } = await supabase
         .from('game_rounds')
         .select('round_number, status')
-        .in('status', ['live', 'pending'])
+        .in('status', ['waiting', 'active'])
         .order('round_number', { ascending: true })
         .limit(8)
   
@@ -360,10 +328,6 @@ const fetchLedger = useCallback(async () => {
       if (isLocalDemo) {
         const queue = generateDemoRounds()
         setRoundsQueueAdmin(queue)
-        if (typeof BroadcastChannel !== 'undefined') {
-          localBusRef.current = localBusRef.current || new BroadcastChannel('round-sync')
-          localBusRef.current.postMessage({ event: 'rounds_update', payload: { rounds: queue } })
-        }
         return
       }
       const { data, error } = await supabase
@@ -378,16 +342,7 @@ const fetchLedger = useCallback(async () => {
       console.log('AdminDashboard: rounds queue parsed', queue)
       setRoundsQueueAdmin(queue)
       try {
-        const ch = await ensureRoundChannel()
-        if (ch) {
-          ch.send({
-            type: 'broadcast',
-            event: 'rounds_update',
-            payload: {
-              rounds: queue,
-            },
-          })
-        }
+   
       } catch {
         // best-effort only
       }
@@ -396,20 +351,6 @@ const fetchLedger = useCallback(async () => {
       setRoundsQueueAdmin([])
     } finally {
       setRoundsQueueLoading(false)
-    }
-  }, [ensureRoundChannel])
-
-  const applyRoundState = useCallback((state, rn) => {
-    if (state === 'live') {
-      setLiveRoundNumber(rn)
-      return
-    }
-    if (state === 'bursted' && rn != null) {
-      setRecentBursted((prev) => {
-        const next = [...prev, rn]
-        return next.slice(-12)
-      })
-      setRoundsQueueAdmin((prev) => prev.filter((r) => (r?.round_number ?? null) !== rn))
     }
   }, [])
 
@@ -466,69 +407,6 @@ const fetchLedger = useCallback(async () => {
     supabase.removeChannel(channel)
   }
 }, [isLocalDemo, isSupabaseConfigured, profileRole, fetchWithdrawals, fetchDeposits])
-
-  // Realtime: round sync from user page (live / bursted events)
-useEffect(() => {
-  if (isLocalDemo) return
-  if (!isSupabaseConfigured || profileRole !== 'admin') return
-
-  let cancelled = false
-  let activeChannel = null
-
-  ;(async () => {
-    const channel = await ensureRoundChannel()
-    if (!channel || cancelled) return
-
-    activeChannel = channel
-
-    channel.on('broadcast', { event: 'round_state' }, (payload) => {
-      const p = payload?.payload
-      if (!p) return
-
-      const rn = p.round_number ?? null
-      const state = p.state
-
-      if (import.meta.env?.DEV) {
-        console.log('[AdminDashboard] round_state:', state, 'round_number:', rn)
-      }
-
-      applyRoundState(state, rn)
-    })
-  })()
-
-  return () => {
-    cancelled = true
-    if (activeChannel) {
-      supabase.removeChannel(activeChannel)
-      if (roundChannelRef.current === activeChannel) {
-        roundChannelRef.current = null
-      }
-      roundChannelReadyRef.current = null
-    }
-  }
-}, [isLocalDemo, isSupabaseConfigured, profileRole, ensureRoundChannel, applyRoundState])
- 
-  // Local realtime: receive round_state when no Supabase
-  useEffect(() => {
-    if (!isLocalDemo) return
-    if (typeof BroadcastChannel === 'undefined') return
-    const bc = new BroadcastChannel('round-sync')
-    localBusRef.current = bc
-    bc.onmessage = (evt) => {
-      const msg = evt?.data
-      if (msg?.event !== 'round_state') return
-      const p = msg?.payload
-      const rn = p?.round_number ?? null
-      const state = p?.state
-
-      
-      applyRoundState(state, rn)
-    }
-    return () => {
-      try { bc.close() } catch {}
-      if (localBusRef.current === bc) localBusRef.current = null
-    }
-  }, [isLocalDemo, applyRoundState, roundsQueueAdmin.length])
 
   // Local demo: auto-generate + broadcast rounds on mount
   useEffect(() => {
@@ -647,13 +525,6 @@ useEffect(() => {
           >
             Generate 12 Rounds Now
           </button>
-          <button 
-            type="button" 
-            className="admin-dashboard__btn admin-dashboard__btn--secondary"
-            onClick={() => generateAndBroadcastRounds(1)}
-          >
-            Force Next Round
-          </button>
         </div>
 
 
@@ -733,9 +604,7 @@ useEffect(() => {
             ) : (
               roundsQueueAdmin.slice(0, 12).map((r) => {
                 const rn = r?.round_number ?? null
-                const isLive = liveRoundNumber != null && rn === liveRoundNumber
-                const status = isLive ? 'LIVE' : 'SCHEDULED'
-                const accent = isLive ? 'var(--accent-green)' : 'var(--accent-blue, #3b82f6)'
+                const status = 'WAITING'
                 return (
                 <div
                   key={r?.id ?? rn}
@@ -743,7 +612,7 @@ useEffect(() => {
                     minWidth: '140px',
                     padding: '0.5rem 0.75rem',
                     borderRadius: '0.5rem',
-                    border: `1px solid ${accent}`,
+                    border: '1px solid var(--accent-blue, #3b82f6)',
                     background: 'var(--surface-subtle, rgba(15,23,42,0.85))',
                     display: 'flex',
                     flexDirection: 'column',
@@ -758,7 +627,7 @@ useEffect(() => {
                   </div>
                   <div style={{ display: 'flex', justifyContent: 'space-between', gap: '0.5rem' }}>
                     <span style={{ opacity: 0.7 }}>Status</span>
-                    <span style={{ color: accent, fontWeight: 700 }}>{status}</span>
+                    <span style={{ color: 'var(--accent-blue, #3b82f6)', fontWeight: 700 }}>{status}</span>
                   </div>
                 </div>
                 )
