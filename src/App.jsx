@@ -37,17 +37,14 @@ export default function App() {
   // Data state
   const [wallet, setWallet] = useState(null);
   const [deposits, setDeposits] = useState([]);
-  const [roundsQueue, setRoundsQueue] = useState([]);
-  const [queueLoaded, setQueueLoaded] = useState(false);
-  const [currentIndex, setCurrentIndex] = useState(0);
   const [showDashboard, setShowDashboard] = useState(false);
   const [demoAllBets, setDemoAllBets] = useState([]);
   const [demoPreviousRound, setDemoPreviousRound] = useState(null);
   const [demoTopBets, setDemoTopBets] = useState([]);
 
-  const roundChannelRef = useRef(null);
-  const roundsQueueLengthRef = useRef({ len: 0, currentRound: null, handleRoundBurst: null, onBurst: null });
-  const localRoundBusRef = useRef(null);
+  const [activeRound, setActiveRound] = useState(null);
+  const [roundsReady, setRoundsReady] = useState(false);
+
   const demoRef = useRef({ seed: Math.floor(Math.random() * 1e9), seq: 0 });
 
   const userId = session?.user?.id ?? null;
@@ -79,37 +76,6 @@ export default function App() {
       setDeposits([]);
     }
   }, [userId]);
-
-  const broadcastRoundState = useCallback((state, round) => {
-    if (!round) return;
-    const payload = {
-      state,
-      round_number: round.round_number ?? null,
-      burst_point: round.burst_point ?? null,
-    };
-
-    // Supabase transport
-    if (roundChannelRef.current) {
-      try {
-        roundChannelRef.current.send({
-          type: "broadcast",
-          event: "round_state",
-          payload,
-        });
-      } catch {
-        // best-effort only
-      }
-    }
-
-    // Local transport (no Supabase)
-    if (!isSupabaseConfigured && localRoundBusRef.current) {
-      try {
-        localRoundBusRef.current.postMessage({ event: "round_state", payload });
-      } catch {
-        // best-effort only
-      }
-    }
-  }, []);
 
   const generateDemoBetsForRound = useCallback((round, opts = {}) => {
     const burst = Number(round?.burst_point ?? 0);
@@ -235,101 +201,105 @@ export default function App() {
   }, []);
 
     // Round sync channel
-  // === IMPROVED BOOTSTRAP (replace the old useEffect that starts at line ~85) ===
   useEffect(() => {
-    const handleRoundsUpdate = (list) => {
-      if (!Array.isArray(list) || list.length === 0) return;
-      setRoundsQueue(list);
-      setCurrentIndex(0);
-      setQueueLoaded(true);
-    };
+    if (!isSupabaseConfigured) return;
   
-    let supabaseChannel = null;
+    let channel;
   
-    // === REAL SUPABASE PATH ===
-    if (isSupabaseConfigured) {
-      // Subscribe to broadcast (keep existing behaviour)
-      supabaseChannel = supabase
-        .channel("round-sync")
-        .on("broadcast", { event: "rounds_update" }, (payload) =>
-          handleRoundsUpdate(payload?.payload?.rounds)
-        )
-        .subscribe();
+  const loadActiveRound = async () => {
+    // 1. Try get active round
+    let { data: active, error } = await supabase
+      .from("game_rounds")
+      .select("*")
+      .eq("status", "active")
+      .maybeSingle();
   
-      // <<< NEW: Bootstrap if DB is empty >>>
-      const bootstrapReal = async () => {
-        // Try to load existing live round
-      const { data, error } = await supabase
+    if (error) {
+      console.error("Fetch active round failed:", error);
+      return;
+    }
+  
+    // 2. If none → promote a waiting round
+    if (!active) {
+      console.log("No active round → promoting one");
+  
+      const { data: waiting, error: waitingError } = await supabase
         .from("game_rounds")
         .select("*")
-        .eq("status", "live")
-        .order("created_at", { ascending: false })
-        .limit(5);
-      
-      if (error) {
-        console.error("bootstrapReal: failed loading live rounds", error);
+        .eq("status", "waiting")
+        .order("created_at", { ascending: true })
+        .limit(1)
+        .maybeSingle();
+  
+      if (waitingError) {
+        console.error("Fetch waiting round failed:", waitingError);
         return;
       }
   
-        if (data && data.length > 0) {
-          handleRoundsUpdate(data);
-        
-          if (supabaseChannel) {
-            supabaseChannel.send({
-              type: "broadcast",
-              event: "rounds_update",
-              payload: { rounds: data },
-            });
-          }
-        } else {
-        // No live round → create one automatically (graceful fallback)
-        console.log("No live round found – auto-creating demo live round");
-      
-        const now = Date.now();
-        const tempRound = {
-          round_id: `R${now}`,
-          round_number: now,
-          burst_point: 5.67,
-          status: "live",
-          starts_at: new Date().toISOString(),
-        };
-      
-        handleRoundsUpdate([tempRound]);
-      
-        const { error: insertError } = await supabase
+      if (waiting) {
+        const { data: updated, error: updateError } = await supabase
           .from("game_rounds")
-          .upsert([tempRound], {
-            onConflict: "round_id",
-            ignoreDuplicates: true,
-          });
-      
-        if (insertError) {
-          console.error("bootstrapReal: failed to persist fallback round", insertError);
+          .update({
+            status: "active",
+            started_at: new Date().toISOString(),
+          })
+          .eq("id", waiting.id)
+          .select()
+          .single();
+  
+        if (updateError) {
+          console.error("Failed to activate round:", updateError);
+          return;
         }
+  
+        active = updated;
       }
-      };
-      bootstrapReal();
     }
   
-    // === DEMO PATH (unchanged, still works perfectly) ===
-    else {
-      const base = Math.floor(Date.now() / 1000) % 100000;
-      const demoRounds = Array.from({ length: 12 }, (_, i) => ({
-        id: `demo-${base + i + 1}`,
-        round_id: `demo-${base + i + 1}`,
-        round_number: base + i + 1,
-        burst_point: Number((1.3 + Math.random() * 8.7).toFixed(2)),
-        status: "live"
-      }));
-      handleRoundsUpdate(demoRounds);
-      // ... rest of your existing demo BroadcastChannel code stays the same
+    if (active) {
+      setActiveRound(active);
+      setRoundsReady(true);
+    } else {
+      console.warn("No rounds available at all");
     }
+  };
+  
+    loadActiveRound();
+  
+    // 🔥 REALTIME SUBSCRIPTION (THIS FIXES YOUR CORE ISSUE)
+    channel = supabase
+      .channel("rounds-realtime")
+      .on(
+        "postgres_changes",
+        {
+          event: "*",
+          schema: "public",
+          table: "game_rounds",
+        },
+        (payload) => {
+          const newRow = payload.new;
+          const oldRow = payload.old;
+        
+          // If a new round becomes active → update UI
+          if (newRow?.status === "active") {
+            console.log("New active round:", newRow);
+            setActiveRound(newRow);
+            setRoundsReady(true);
+          }
+        
+          // 🔥 If a round just ended → trigger next activation
+          if (oldRow?.status === "active" && newRow?.status === "ended") {
+            console.log("Round ended → loading next round");
+            loadActiveRound();
+          }
+        }
+      )
+      .subscribe();
   
     return () => {
-      if (supabaseChannel) supabase.removeChannel(supabaseChannel);
+      if (channel) supabase.removeChannel(channel);
     };
-  }, []);   // keep empty dependency
-
+  }, []);
   // Load private data when session changes
   useEffect(() => {
     if (!userId) {
@@ -373,10 +343,6 @@ export default function App() {
 
   const lastDepositPhone = useMemo(() => (deposits.length > 0 ? deposits[0]?.phone ?? null : null), [deposits]);
 
-  const roundsReady = queueLoaded && roundsQueue.length > 0;
-  const currentRound = roundsReady ? roundsQueue[currentIndex] ?? null : null;
-  roundsQueueLengthRef.current.currentRound = currentRound;
-
   const handleAuthSuccess = useCallback(() => {
     refreshPrivateData();
     setMessage({ type: "success", text: "Welcome! You are now logged in." });
@@ -399,18 +365,38 @@ export default function App() {
     }
   }, []);
 
-  const betRound = currentRound ?? null;
-  const canBet = roundsReady && !!betRound;
-
+  const betRound = activeRound ?? null;
+  const canBet = !!activeRound;
+  
   const handleRoundBurst = useCallback(
     async (finishedRound) => {
-      if (!roundsReady || !finishedRound) return;
-      // Mark burst immediately so admin tables can update during the break.
-      broadcastRoundState("bursted", finishedRound);
-      // Do NOT advance index here; we advance after the 5s rest completes (from GameCard).
-
+      if (!finishedRound) return;
+  
+      // 🔥 Mark round as ended in DB
+      if (isSupabaseConfigured && finishedRound?.id) {
+        try {
+          const { error } = await supabase
+            .from("game_rounds")
+            .update({
+              status: "ended",
+              ended_at: new Date().toISOString(),
+            })
+            .eq("id", finishedRound.id);
+  
+          if (error) {
+            console.error("Failed to end round:", error);
+          } else {
+            console.log("Round ended:", finishedRound.id);
+          }
+        } catch (err) {
+          console.error("Error ending round:", err);
+        }
+      }
+  
+      // Demo fallback
       if (!isSupabaseConfigured) {
         const roundBets = generateDemoBetsForRound(finishedRound, { count: 10 });
+  
         setDemoPreviousRound({
           result: Number(finishedRound?.burst_point ?? 0),
           bets: roundBets.map((b) => ({
@@ -421,39 +407,18 @@ export default function App() {
             win_kes: b.win_kes,
           })),
         });
-        setDemoAllBets((prev) => {
-          const next = [...roundBets, ...(Array.isArray(prev) ? prev : [])].slice(0, 50);
-          return next;
-        });
+  
+        setDemoAllBets((prev) => [...roundBets, ...(prev ?? [])].slice(0, 50));
+  
         setDemoTopBets((prev) => {
-          const merged = [...roundBets, ...(Array.isArray(prev) ? prev : [])];
+          const merged = [...roundBets, ...(prev ?? [])];
           merged.sort((a, b) => (b.win_kes ?? 0) - (a.win_kes ?? 0));
           return merged.slice(0, 20);
         });
       }
     },
-    [roundsReady, broadcastRoundState, generateDemoBetsForRound]
+    [generateDemoBetsForRound]
   );
-
-  const handleRestComplete = useCallback(() => {
-    if (!roundsReady) return;
-    setCurrentIndex((prev) => prev + 1);
-  }, [roundsReady]);
-  roundsQueueLengthRef.current.handleRoundBurst = handleRoundBurst;
-  if (!roundsQueueLengthRef.current.onBurst) {
-    roundsQueueLengthRef.current.onBurst = () => {
-      roundsQueueLengthRef.current.handleRoundBurst?.(roundsQueueLengthRef.current.currentRound);
-    };
-  }
-
-  // Whenever the current index or queue changes, broadcast the live round
-  useEffect(() => {
-    if (!roundsReady) return;
-    const round = roundsQueue[currentIndex] ?? null;
-    if (round) {
-      broadcastRoundState("live", round);
-    }
-  }, [roundsReady, roundsQueue, currentIndex, broadcastRoundState]);
 
   const handleBetClick = useCallback(
     async (action, stake, side) => {
@@ -544,16 +509,16 @@ export default function App() {
         <>
           <GameHeader />
 
-          {!roundsReady && queueLoaded && (
+          {!roundsReady && (
             <div className="message-banner message-banner--error" role="status" style={{ margin: "0 1rem 1rem" }}>
               Waiting for rounds. Admin must generate rounds in the Admin Dashboard.
             </div>
           )}
           <GameCard
-            burstPoint={currentRound?.burst_point ?? null}
+            burstPoint={activeRound?.burst_point ?? null}
             onMultiplierUpdate={null}
-            onBurst={roundsQueueLengthRef.current.onBurst}
-            onRestComplete={handleRestComplete}
+            onBurst={handleRoundBurst}
+            onRestComplete={() => {}}
           />
           
           <BetPanel panelId="1" side="top" session={session} onBetClick={handleBetClick} disabled={!canBet} />
