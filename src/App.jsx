@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { supabase, isSupabaseConfigured } from "./supabaseClient.js";
-import { getAuthRole, setAuthRole, clearAuthRole } from "./utils/storage.js";
+import { setAuthRole, clearAuthRole } from "./utils/storage.js";
 
 import TopBar from "./components/TopBar.jsx";
 import HeaderRow from "./components/HeaderRow.jsx";
@@ -207,60 +207,36 @@ export default function App() {
     let channel;
   
   const loadActiveRound = async () => {
-    // 1. Try get active round
-    let { data: active, error } = await supabase
+    console.log("loadActiveRound started");
+  
+    // Temporary backend-controlled read:
+    // fetch the newest currently active/live round only.
+    // Later this will be replaced with an RPC like get_next_live_round().
+    const { data: active, error } = await supabase
       .from("game_rounds")
       .select("*")
-      .eq("status", "active")
+      .in("status", ["active", "live"])
+      .order("created_at", { ascending: false })
+      .limit(1)
       .maybeSingle();
+  
+    console.log("active query result:", { active, error });
   
     if (error) {
       console.error("Fetch active round failed:", error);
+      setActiveRound(null);
+      setRoundsReady(false);
       return;
-    }
-  
-    // 2. If none → promote a waiting round
-    if (!active) {
-      console.log("No active round → promoting one");
-  
-      const { data: waiting, error: waitingError } = await supabase
-        .from("game_rounds")
-        .select("*")
-        .eq("status", "waiting")
-        .order("created_at", { ascending: true })
-        .limit(1)
-        .maybeSingle();
-  
-      if (waitingError) {
-        console.error("Fetch waiting round failed:", waitingError);
-        return;
-      }
-  
-      if (waiting) {
-        const { data: updated, error: updateError } = await supabase
-          .from("game_rounds")
-          .update({
-            status: "active",
-            started_at: new Date().toISOString(),
-          })
-          .eq("id", waiting.id)
-          .select()
-          .single();
-  
-        if (updateError) {
-          console.error("Failed to activate round:", updateError);
-          return;
-        }
-  
-        active = updated;
-      }
     }
   
     if (active) {
       setActiveRound(active);
       setRoundsReady(true);
+      console.log("state updated with active round");
     } else {
-      console.warn("No rounds available at all");
+      setActiveRound(null);
+      setRoundsReady(false);
+      console.warn("No active round available yet. Waiting for authoritative activation.");
     }
   };
   
@@ -281,14 +257,17 @@ export default function App() {
           const oldRow = payload.old;
         
           // If a new round becomes active → update UI
-          if (newRow?.status === "active") {
-            console.log("New active round:", newRow);
+          if (newRow?.status === "active" || newRow?.status === "live") {
+            console.log("New live round:", newRow);
             setActiveRound(newRow);
             setRoundsReady(true);
           }
         
           // 🔥 If a round just ended → trigger next activation
-          if (oldRow?.status === "active" && newRow?.status === "ended") {
+          if (
+            (oldRow?.status === "active" || oldRow?.status === "live") &&
+            (newRow?.status === "ended" || newRow?.status === "bursted")
+          ) {
             console.log("Round ended → loading next round");
             loadActiveRound();
           }
@@ -366,59 +345,45 @@ export default function App() {
   }, []);
 
   const betRound = activeRound ?? null;
-  const canBet = !!activeRound;
+  const betRoundPublicId = betRound?.round_id ?? null;
+  const canBet = !!betRound && !!betRoundPublicId;
   
-  const handleRoundBurst = useCallback(
-    async (finishedRound) => {
-      if (!finishedRound) return;
-  
-      // 🔥 Mark round as ended in DB
-      if (isSupabaseConfigured && finishedRound?.id) {
-        try {
-          const { error } = await supabase
-            .from("game_rounds")
-            .update({
-              status: "ended",
-              ended_at: new Date().toISOString(),
-            })
-            .eq("id", finishedRound.id);
-  
-          if (error) {
-            console.error("Failed to end round:", error);
-          } else {
-            console.log("Round ended:", finishedRound.id);
-          }
-        } catch (err) {
-          console.error("Error ending round:", err);
-        }
-      }
-  
-      // Demo fallback
-      if (!isSupabaseConfigured) {
-        const roundBets = generateDemoBetsForRound(finishedRound, { count: 10 });
-  
-        setDemoPreviousRound({
-          result: Number(finishedRound?.burst_point ?? 0),
-          bets: roundBets.map((b) => ({
-            id: b.id,
-            player: b.player,
-            bet_kes: b.bet_kes,
-            multiplier: b.multiplier,
-            win_kes: b.win_kes,
-          })),
-        });
-  
-        setDemoAllBets((prev) => [...roundBets, ...(prev ?? [])].slice(0, 50));
-  
-        setDemoTopBets((prev) => {
-          const merged = [...roundBets, ...(prev ?? [])];
-          merged.sort((a, b) => (b.win_kes ?? 0) - (a.win_kes ?? 0));
-          return merged.slice(0, 20);
-        });
-      }
-    },
-    [generateDemoBetsForRound]
-  );
+const handleRoundBurst = useCallback(
+  async (finishedRound) => {
+    if (!finishedRound) return;
+
+    if (isSupabaseConfigured) {
+      console.log("Round burst reached user page:", {
+        id: finishedRound?.id ?? null,
+        round_id: finishedRound?.round_id ?? null,
+        burst_point: finishedRound?.burst_point ?? null,
+      });
+      return;
+    }
+
+    const roundBets = generateDemoBetsForRound(finishedRound, { count: 10 });
+
+    setDemoPreviousRound({
+      result: Number(finishedRound?.burst_point ?? 0),
+      bets: roundBets.map((b) => ({
+        id: b.id,
+        player: b.player,
+        bet_kes: b.bet_kes,
+        multiplier: b.multiplier,
+        win_kes: b.win_kes,
+      })),
+    });
+
+    setDemoAllBets((prev) => [...roundBets, ...(prev ?? [])].slice(0, 50));
+
+    setDemoTopBets((prev) => {
+      const merged = [...roundBets, ...(prev ?? [])];
+      merged.sort((a, b) => (b.win_kes ?? 0) - (a.win_kes ?? 0));
+      return merged.slice(0, 20);
+    });
+  },
+  [generateDemoBetsForRound]
+);
 
   const handleBetClick = useCallback(
     async (action, stake, side) => {
@@ -454,7 +419,7 @@ export default function App() {
         return;
       }
 
-      const roundIdText = betRound?.round_id ?? (betRound?.id != null ? String(betRound.id) : "");
+    const roundIdText = betRoundPublicId ? String(betRoundPublicId) : "";
       if (!roundIdText) {
         setMessage({ type: "error", text: "No bettable round. Waiting for rounds." });
         return;
@@ -484,8 +449,8 @@ export default function App() {
         }
       }
     },
-    [userId, wallet?.available_cents, betRound, roundsReady, canBet, refreshPrivateData]
-  );
+      [userId, wallet?.available_cents, betRoundPublicId, roundsReady, canBet, refreshPrivateData]
+     );
 
   if (loading) {
     return <LoadingOverlay />;
@@ -508,13 +473,14 @@ export default function App() {
       ) : (
         <>
           <GameHeader />
-
+          
           {!roundsReady && (
             <div className="message-banner message-banner--error" role="status" style={{ margin: "0 1rem 1rem" }}>
-              Waiting for rounds. Admin must generate rounds in the Admin Dashboard.
+              Waiting for a live round from the server.
             </div>
           )}
           <GameCard
+            key={activeRound?.id ?? "no-round"}
             burstPoint={activeRound?.burst_point ?? null}
             onMultiplierUpdate={null}
             onBurst={handleRoundBurst}
