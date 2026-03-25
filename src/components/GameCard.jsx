@@ -5,7 +5,7 @@ import React, { useEffect, useRef, useState } from "react";
  * Driven entirely by the provided burstPoint; no local fallback simulation
  * is used when real round data is available.
  */
-export default function GameCard({ burstPoint, onMultiplierUpdate, onBurst, onRestComplete }) {
+export default function GameCard({ round, burstPoint, onMultiplierUpdate, onBurst, onRestComplete }) {
   const [multiplier, setMultiplier] = useState(1.0);
   const [roundState, setRoundState] = useState("live"); // 'live' | 'burst' | 'rest'
   const [restCountdown, setRestCountdown] = useState(5);
@@ -72,7 +72,7 @@ export default function GameCard({ burstPoint, onMultiplierUpdate, onBurst, onRe
         roundStateRef.current = "burst";
 
         if (onBurst) {
-          onBurst();
+          onBurst(round);
         }
 
         burstTimerRef.current = setTimeout(() => {
@@ -123,7 +123,7 @@ export default function GameCard({ burstPoint, onMultiplierUpdate, onBurst, onRe
         burstTimerRef.current = null;
       }
     };
-  }, [burstPoint, onMultiplierUpdate, onBurst]);
+  }, [burstPoint, round, onMultiplierUpdate, onBurst, onRestComplete]);
 
   const numMultiplier = multiplier === null || multiplier === undefined ? null : Number(multiplier);
   const displayMultiplier = numMultiplier === null || numMultiplier === undefined || numMultiplier === 0
