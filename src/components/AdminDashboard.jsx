@@ -16,14 +16,7 @@ function formatDate(iso) {
 
 export default function AdminDashboard({ user, setMessage, onNotAdmin }) {
 
-
-//test lines, to be deleted. 
-
   const isLocalDemo = !isSupabaseConfigured
-  if (isLocalDemo) {
-  }
-
-//test lines, to be deleted. 
   
   const [profileRole, setProfileRole] = useState(null)
   const [guardLoading, setGuardLoading] = useState(true)
@@ -58,99 +51,6 @@ const generateDemoRounds = useCallback(() => {
     })
   }, [])
 
-
-    const generateAndBroadcastRounds = useCallback(async (count = 12) => {
-    if (isGeneratingRef.current) {
-      console.warn('Generation already in progress — skipping')
-      return
-    }
-  
-    isGeneratingRef.current = true
-  
-    try {
-      const { data: latestRound, error: latestRoundError } = await supabase
-        .from('game_rounds')
-        .select('round_number')
-        .order('round_number', { ascending: false })
-        .limit(1)
-        .maybeSingle()
-  
-      if (latestRoundError) {
-        console.error('Failed to read latest round:', latestRoundError)
-        setMessage?.({ type: 'error', text: 'Failed to read latest round number.' })
-        return
-      }
-  
-      const nextRoundNumberStart = (latestRound?.round_number ?? 0) + 1
-      const createdAt = new Date().toISOString()
-  
-      const newRounds = Array.from({ length: count }, (_, i) => {
-        const roundNumber = nextRoundNumberStart + i
-        const burst = Number((1.8 + Math.random() * 13.2).toFixed(2))
-      
-        return {
-          round_id: crypto.randomUUID(),
-          round_number: roundNumber,
-          burst_point: burst,
-          status: 'waiting', // ✅ ALL rounds start as waiting
-          created_at: createdAt,
-        }
-      })
-  
-      const { error: insertError } = await supabase
-        .from('game_rounds')
-        .insert(newRounds)
-  
-      if (insertError) {
-        console.error('Insert failed:', insertError)
-        setMessage?.({ type: 'error', text: 'Failed to generate rounds: ' + insertError.message })
-        return
-      }
-
-  
-      setGeneratedCount((prev) => {
-        const next = prev + count
-        console.log(`Admin generated & broadcasted ${count} rounds (total generated: ${next})`)
-        return next
-      })
-  
-    setRoundsQueueAdmin(newRounds)
-  
-      setLiveRoundNumber(newRounds[0]?.round_number ?? null)
-  } catch (err) {
-    console.error('Generator crashed:', err)
-    setMessage?.({ type: 'error', text: 'Round generation error' })
-  } finally {
-    isGeneratingRef.current = false
-  }
-  }, [setMessage])
-
- useEffect(() => {
-    if (!isSupabaseConfigured || profileRole !== 'admin') return
-  
-    generateAndBroadcastRounds(12)
-  
-    const interval = setInterval(async () => {
-      const { data, error } = await supabase
-        .from('game_rounds')
-        .select('round_number, status')
-        .in('status', ['waiting', 'active'])
-        .order('round_number', { ascending: true })
-        .limit(8)
-  
-      if (error) return
-  
-      const remaining = data?.length ?? 0
-      if (remaining <= 3) {
-        console.log(`Low rounds (${remaining}) → generating 12 more`)
-        generateAndBroadcastRounds(12)
-      }
-    }, 10000)
-  
-    return () => clearInterval(interval)
-  }, [profileRole, generateAndBroadcastRounds])
-
-  
   const handleLogout = useCallback(async () => {
     await supabase.auth.signOut()
     window.location.replace('/')
@@ -332,7 +232,7 @@ const fetchLedger = useCallback(async () => {
       }
       const { data, error } = await supabase
         .from('next_rounds_admin')
-        .select('id, round_id, round_number, burst_point')
+        .select('id, round_id, round_number, burst_point, status')
         .order('round_number', { ascending: true })
         .limit(12)
       console.log('AdminDashboard: next_rounds_admin response', { data, error })
@@ -341,11 +241,6 @@ const fetchLedger = useCallback(async () => {
       const queue = data ?? []
       console.log('AdminDashboard: rounds queue parsed', queue)
       setRoundsQueueAdmin(queue)
-      try {
-   
-      } catch {
-        // best-effort only
-      }
     } catch (e) {
       setRoundsQueueError(e?.message || 'Failed to load rounds queue')
       setRoundsQueueAdmin([])
@@ -354,37 +249,183 @@ const fetchLedger = useCallback(async () => {
     }
   }, [])
 
+const fetchRecentBurstedRounds = useCallback(async () => {
+  if (!isSupabaseConfigured) return
+
+  const { data, error } = await supabase
+    .from('game_rounds')
+    .select('round_number, burst_point, status, ended_at')
+    .in('status', ['ended', 'bursted'])
+    .order('ended_at', { ascending: false })
+    .limit(10)
+
+  if (error) {
+    console.error('Failed to fetch recent bursted rounds:', error)
+    return
+  }
+
+  setRecentBursted(Array.isArray(data) ? data : [])
+}, [])
+
+const fetchLiveRound = useCallback(async () => {
+  if (!isSupabaseConfigured) return
+
+  const { data, error } = await supabase
+    .from('game_rounds')
+    .select('round_number, status')
+    .in('status', ['active', 'live'])
+    .order('round_number', { ascending: false })
+    .limit(1)
+    .maybeSingle()
+
+  if (error) {
+    console.error('Failed to fetch live round:', error)
+    setLiveRoundNumber(null)
+    return
+  }
+
+  setLiveRoundNumber(data?.round_number ?? null)
+}, [])
+  
+    const generateWaitingRounds = useCallback(async (count = 12) => {
+    if (isGeneratingRef.current) {
+      console.warn('Generation already in progress — skipping')
+      return
+    }
+  
+    isGeneratingRef.current = true
+  
+    try {
+      const { data: latestRound, error: latestRoundError } = await supabase
+        .from('game_rounds')
+        .select('round_number')
+        .order('round_number', { ascending: false })
+        .limit(1)
+        .maybeSingle()
+      
+      if (latestRoundError) {
+        console.error('Failed to read latest round:', latestRoundError)
+        setMessage?.({ type: 'error', text: 'Failed to read latest round number.' })
+        return
+      }
+      
+      const nextRoundNumberStart = (latestRound?.round_number ?? 0) + 1
+      const createdAt = new Date().toISOString()
+  
+      const newRounds = Array.from({ length: count }, (_, i) => {
+        const roundNumber = nextRoundNumberStart + i
+        const burst = Number((1.8 + Math.random() * 13.2).toFixed(2))
+  
+        return {
+          round_id: crypto.randomUUID(),
+          round_number: roundNumber,
+          burst_point: burst,
+          status: 'waiting',
+          created_at: createdAt,
+        }
+      })
+  
+      const { error: insertError } = await supabase
+        .from('game_rounds')
+        .insert(newRounds)
+  
+      if (insertError) {
+        console.error('Insert failed:', insertError)
+        setMessage?.({ type: 'error', text: 'Failed to generate rounds: ' + insertError.message })
+        return
+      }
+  
+      setGeneratedCount((prev) => {
+        const next = prev + count
+        console.log(`Admin generated ${count} waiting rounds (total generated: ${next})`)
+        return next
+      })
+  
+     await fetchAdminRoundsQueue()
+      await fetchRecentBurstedRounds()
+    } catch (err) {
+      console.error('Generator crashed:', err)
+      setMessage?.({ type: 'error', text: 'Round generation error' })
+    } finally {
+      isGeneratingRef.current = false
+    }
+}, [setMessage, fetchAdminRoundsQueue, fetchRecentBurstedRounds])
+
+
+    const handleRefreshAll = useCallback(async () => {
+      await Promise.all([
+        fetchWithdrawals(),
+        fetchDeposits(),
+        fetchLedger(),
+        fetchStats(),
+        fetchAdminRoundsQueue(),
+        fetchRecentBurstedRounds(),
+        fetchLiveRound(),
+      ])
+    }, [
+      fetchWithdrawals,
+      fetchDeposits,
+      fetchLedger,
+      fetchStats,
+      fetchAdminRoundsQueue,
+      fetchRecentBurstedRounds,
+      fetchLiveRound,
+    ])
+  
   // Auto-refill scheduled queue when it drops below 3
+    useEffect(() => {
+    if (!isSupabaseConfigured) return
+  
+    let cancelled = false
+  
+    const checkAndRefillWaitingRounds = async () => {
+      if (isGeneratingRef.current) return
+  
+      const { data, error } = await supabase
+        .from('game_rounds')
+        .select('round_number, status')
+        .eq('status', 'waiting')
+        .order('round_number', { ascending: true })
+        .limit(8)
+  
+      if (cancelled) return
+  
+      if (error) {
+        console.error('Failed to check waiting rounds:', error)
+        return
+      }
+  
+      const waitingCount = Array.isArray(data) ? data.length : 0
+  
+      if (waitingCount <= 3) {
+        console.log(`Waiting rounds low (${waitingCount}) → generating 12 more`)
+        await generateWaitingRounds(12)
+      }
+    }
+  
+    checkAndRefillWaitingRounds()
+    const id = window.setInterval(checkAndRefillWaitingRounds, 5000)
+  
+    return () => {
+      cancelled = true
+      window.clearInterval(id)
+    }
+  }, [generateWaitingRounds])
 
-  const handleRefreshAll = useCallback(() => {
-    fetchWithdrawals()
-    fetchDeposits()
-    fetchLedger()
-    fetchStats()
-  }, [fetchWithdrawals, fetchDeposits])
-
-    
- useEffect(() => {
-  if (isLocalDemo) return
-  if (!isSupabaseConfigured || profileRole !== 'admin') return
+useEffect(() => {
+  if (!isSupabaseConfigured) return
+  if (profileRole !== 'admin') return
 
   fetchWithdrawals()
   fetchDeposits()
   fetchLedger()
   fetchStats()
   fetchAdminRoundsQueue()
-}, [
-  isLocalDemo,
-  isSupabaseConfigured,
-  profileRole,
-  fetchWithdrawals,
-  fetchDeposits,
-  fetchLedger,
-  fetchStats,
-  fetchAdminRoundsQueue,
-])
-  
-  // Realtime: withdrawal_requests and deposits
+  fetchRecentBurstedRounds()
+  fetchLiveRound()
+}, [profileRole, fetchWithdrawals, fetchDeposits, fetchLedger, fetchStats, fetchAdminRoundsQueue, fetchRecentBurstedRounds, fetchLiveRound])
+    
+// Realtime: withdrawal_requests and deposits
  useEffect(() => {
   if (isLocalDemo) return
   if (!isSupabaseConfigured || profileRole !== 'admin') return
@@ -401,13 +442,22 @@ const fetchLedger = useCallback(async () => {
       { event: '*', schema: 'public', table: 'deposits' },
       () => fetchDeposits()
     )
+    .on(
+      'postgres_changes',
+      { event: '*', schema: 'public', table: 'game_rounds' },
+      () => {
+        fetchAdminRoundsQueue()
+        fetchRecentBurstedRounds()
+        fetchLiveRound()
+      }
+    )
     .subscribe()
 
   return () => {
     supabase.removeChannel(channel)
   }
-}, [isLocalDemo, isSupabaseConfigured, profileRole, fetchWithdrawals, fetchDeposits])
-
+}, [isLocalDemo, isSupabaseConfigured, profileRole, fetchWithdrawals, fetchDeposits, fetchAdminRoundsQueue, fetchRecentBurstedRounds, fetchLiveRound])
+  
   // Local demo: auto-generate + broadcast rounds on mount
   useEffect(() => {
     if (!isLocalDemo) return
@@ -521,7 +571,7 @@ const fetchLedger = useCallback(async () => {
           <button 
             type="button" 
             className="admin-dashboard__btn admin-dashboard__btn--primary"
-            onClick={() => generateAndBroadcastRounds(12)}
+            onClick={() => generateWaitingRounds(12)}
           >
             Generate 12 Rounds Now
           </button>
@@ -551,7 +601,7 @@ const fetchLedger = useCallback(async () => {
 
       {/* Live round from user page */}
       <section className="admin-dashboard__card admin-dashboard__card--wide" style={{ marginBottom: '1.5rem' }}>
-        <h3 className="admin-dashboard__card-title">Live round (from user page)</h3>
+        <h3 className="admin-dashboard__card-title">Live round (from server)</h3>
         <div className="admin-dashboard__next-round">
           <div
             className="admin-dashboard__preview-card"
@@ -571,7 +621,7 @@ const fetchLedger = useCallback(async () => {
             </div>
             {liveRoundNumber != null && (
               <div style={{ opacity: 0.8 }}>
-                Tracking via realtime from user page. Bursted rounds will drop from the queue automatically.
+                Tracking via realtime from database. Bursted rounds will drop from the queue automatically.
               </div>
             )}
           </div>
@@ -594,8 +644,7 @@ const fetchLedger = useCallback(async () => {
         >
 
           <span style={{ fontSize: '0.75rem', opacity: 0.8 }}>
-            Live / scheduled queue from admin source. Auto-refills when fewer than 3 scheduled rounds remain.
-          </span>
+            Scheduled queue from database. Auto-refills when 3 or fewer waiting rounds remain.          </span>
         </div>
         <div style={{ overflowX: 'auto', paddingBottom: '0.5rem' }}>
           <div style={{ display: 'flex', gap: '0.75rem', minHeight: '4.5rem' }}>
@@ -604,7 +653,7 @@ const fetchLedger = useCallback(async () => {
             ) : (
               roundsQueueAdmin.slice(0, 12).map((r) => {
                 const rn = r?.round_number ?? null
-                const status = 'WAITING'
+                const status = String(r?.status ?? 'waiting').toUpperCase()
                 return (
                 <div
                   key={r?.id ?? rn}
@@ -645,9 +694,9 @@ const fetchLedger = useCallback(async () => {
             {recentBursted.length === 0 ? (
               <div className="admin-dashboard__empty">No bursted rounds yet.</div>
             ) : (
-              [...recentBursted].reverse().slice(0, 12).map((rn) => (
+              [...recentBursted].slice(0, 12).map((row) => (
                 <div
-                  key={rn}
+                  key={`${row?.round_number ?? 'x'}-${row?.ended_at ?? 'no-ended-at'}`}
                   style={{
                     minWidth: '140px',
                     padding: '0.5rem 0.75rem',
@@ -660,10 +709,18 @@ const fetchLedger = useCallback(async () => {
                     fontSize: '0.75rem',
                   }}
                 >
-                  <div style={{ fontWeight: 600, fontSize: '0.8rem' }}>Round #{rn ?? '—'}</div>
+                  <div style={{ fontWeight: 600, fontSize: '0.8rem' }}>
+                    Round #{row?.round_number ?? '—'}
+                  </div>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', gap: '0.5rem' }}>
+                    <span style={{ opacity: 0.7 }}>Burst</span>
+                    <span>{row?.burst_point != null ? `${Number(row.burst_point).toFixed(2)}x` : '—'}</span>
+                  </div>
                   <div style={{ display: 'flex', justifyContent: 'space-between', gap: '0.5rem' }}>
                     <span style={{ opacity: 0.7 }}>Status</span>
-                    <span style={{ color: 'var(--accent-red, #ef4444)', fontWeight: 700 }}>BURSTED</span>
+                    <span style={{ color: 'var(--accent-red, #ef4444)', fontWeight: 700 }}>
+                      {String(row?.status ?? 'ended').toUpperCase()}
+                    </span>
                   </div>
                 </div>
               ))
