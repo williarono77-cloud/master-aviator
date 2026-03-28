@@ -200,18 +200,18 @@ export default function App() {
     };
   }, []);
 
-    // Round sync channel
-  useEffect(() => {
-    if (!isSupabaseConfigured) return;
-  
-    let channel;
-  
+// Round fetch / refetch pipeline
+useEffect(() => {
+  if (!isSupabaseConfigured) return;
+
+  let cancelled = false;
+  let retryTimer = null;
+
   const loadActiveRound = async () => {
+    if (cancelled) return;
+
     console.log("loadActiveRound started");
-  
-    // Temporary backend-controlled read:
-    // fetch the newest currently active/live round only.
-    // Later this will be replaced with an RPC like get_next_live_round().
+
     const { data: active, error } = await supabase
       .from("game_rounds")
       .select("*")
@@ -219,66 +219,48 @@ export default function App() {
       .order("created_at", { ascending: false })
       .limit(1)
       .maybeSingle();
-  
+
     console.log("active query result:", { active, error });
-  
+
+    if (cancelled) return;
+
     if (error) {
       console.error("Fetch active round failed:", error);
       setActiveRound(null);
       setRoundsReady(false);
+
+      retryTimer = setTimeout(() => {
+        loadActiveRound();
+      }, 1500);
       return;
     }
-  
+
     if (active) {
-      setActiveRound(active);
+      setActiveRound((prev) => {
+        if (prev?.id === active.id) return prev;
+        return active;
+      });
       setRoundsReady(true);
       console.log("state updated with active round");
-    } else {
-      setActiveRound(null);
-      setRoundsReady(false);
-      console.warn("No active round available yet. Waiting for authoritative activation.");
+      return;
     }
+
+    setActiveRound(null);
+    setRoundsReady(false);
+    console.warn("No active round available yet. Retrying...");
+
+    retryTimer = setTimeout(() => {
+      loadActiveRound();
+    }, 1000);
   };
-  
-    loadActiveRound();
-  
-    // 🔥 REALTIME SUBSCRIPTION (THIS FIXES YOUR CORE ISSUE)
-    channel = supabase
-      .channel("rounds-realtime")
-      .on(
-        "postgres_changes",
-        {
-          event: "*",
-          schema: "public",
-          table: "game_rounds",
-        },
-        (payload) => {
-          const newRow = payload.new;
-          const oldRow = payload.old;
-        
-          // If a new round becomes active → update UI
-          if (newRow?.status === "active" || newRow?.status === "live") {
-            console.log("New live round:", newRow);
-            setActiveRound(newRow);
-            setRoundsReady(true);
-          }
-        
-          // 🔥 If a round just ended → trigger next activation
-          if (
-            (oldRow?.status === "active" || oldRow?.status === "live") &&
-            (newRow?.status === "ended" || newRow?.status === "bursted")
-          ) {
-            console.log("Round ended → loading next round");
-            loadActiveRound();
-          }
-        }
-      )
-      .subscribe();
-  
-    return () => {
-      if (channel) supabase.removeChannel(channel);
-    };
-  }, []);
+
+  loadActiveRound();
+
+  return () => {
+    cancelled = true;
+    if (retryTimer) clearTimeout(retryTimer);
+  };
+}, []);
   // Load private data when session changes
   useEffect(() => {
     if (!userId) {
@@ -358,6 +340,66 @@ const handleRoundBurst = useCallback(
         round_id: finishedRound?.round_id ?? null,
         burst_point: finishedRound?.burst_point ?? null,
       });
+
+      // force reset so GameCard does not stay stuck on the old round
+      setActiveRound(null);
+      setRoundsReady(false);
+
+      // give backend a moment to end current round and activate the next one
+      setTimeout(async () => {
+        console.log("Post-burst refetch started");
+
+        const { data: nextRound, error } = await supabase
+          .from("game_rounds")
+          .select("*")
+          .in("status", ["active", "live"])
+          .order("created_at", { ascending: false })
+          .limit(1)
+          .maybeSingle();
+
+        console.log("Post-burst refetch result:", { nextRound, error });
+
+        if (error) {
+          console.error("Post-burst fetch failed:", error);
+          return;
+        }
+
+  if (nextRound) {
+    setActiveRound(nextRound);
+    setRoundsReady(true);
+    console.log("Next round applied after burst");
+  } else {
+    console.warn("No next round yet after burst");
+  
+    setTimeout(async () => {
+      console.log("Retrying post-burst fetch");
+  
+      const { data: retryRound, error: retryError } = await supabase
+        .from("game_rounds")
+        .select("*")
+        .in("status", ["active", "live"])
+        .order("created_at", { ascending: false })
+        .limit(1)
+        .maybeSingle();
+  
+      console.log("Retry post-burst result:", { retryRound, retryError });
+  
+      if (retryError) {
+        console.error("Retry post-burst fetch failed:", retryError);
+        return;
+      }
+  
+      if (retryRound) {
+        setActiveRound(retryRound);
+        setRoundsReady(true);
+        console.log("Retry round applied after burst");
+      } else {
+        console.warn("Still no round after retry");
+      }
+          }, 1000);
+        }
+      }, 1200);
+
       return;
     }
 
