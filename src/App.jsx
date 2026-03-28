@@ -18,6 +18,7 @@ import WithdrawModal from "./components/WithdrawModal.jsx";
 import Toast from "./components/Toast.jsx";
 import LoadingOverlay from "./components/LoadingOverlay.jsx";
 import Dashboard from "./components/Dashboard.jsx";
+import { advanceRound, fetchActiveRound } from "./utils/gameRounds";
 
 export default function App() {
   const [session, setSession] = useState(null);
