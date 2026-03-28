@@ -90,6 +90,7 @@ export default function GameCard({ round, burstPoint, onMultiplierUpdate, onBurs
             if (remaining <= 0) {
               clearInterval(interval);
               restTimerRef.current = null;
+              setMultiplier(1.0);
               setRoundState("live");
               roundStateRef.current = "live";
               setRestProgress(1);
