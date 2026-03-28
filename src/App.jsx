@@ -388,15 +388,22 @@ const handleRestComplete = useCallback(async () => {
       return;
     }
 
-    if (nextRound) {
-      setActiveRound((prev) => {
-        if (prev?.id === nextRound.id) return prev;
-        return nextRound;
+  if (nextRound) {
+    const currentRoundId = activeRound?.id ?? null;
+  
+    if (currentRoundId && nextRound.id === currentRoundId) {
+      console.warn("Fetched same round after rest; waiting for a new round", {
+        currentRoundId,
+        nextRoundId: nextRound.id,
+        attempt,
       });
+    } else {
+      setActiveRound(nextRound);
       setRoundsReady(true);
       console.log("Next round applied after rest");
       return;
     }
+  }
 
     if (attempt < 5) {
       setTimeout(() => {
