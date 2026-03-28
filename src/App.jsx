@@ -340,66 +340,6 @@ const handleRoundBurst = useCallback(
         round_id: finishedRound?.round_id ?? null,
         burst_point: finishedRound?.burst_point ?? null,
       });
-
-      // force reset so GameCard does not stay stuck on the old round
-      setActiveRound(null);
-      setRoundsReady(false);
-
-      // give backend a moment to end current round and activate the next one
-      setTimeout(async () => {
-        console.log("Post-burst refetch started");
-
-        const { data: nextRound, error } = await supabase
-          .from("game_rounds")
-          .select("*")
-          .in("status", ["active", "live"])
-          .order("created_at", { ascending: false })
-          .limit(1)
-          .maybeSingle();
-
-        console.log("Post-burst refetch result:", { nextRound, error });
-
-        if (error) {
-          console.error("Post-burst fetch failed:", error);
-          return;
-        }
-
-  if (nextRound) {
-    setActiveRound(nextRound);
-    setRoundsReady(true);
-    console.log("Next round applied after burst");
-  } else {
-    console.warn("No next round yet after burst");
-  
-    setTimeout(async () => {
-      console.log("Retrying post-burst fetch");
-  
-      const { data: retryRound, error: retryError } = await supabase
-        .from("game_rounds")
-        .select("*")
-        .in("status", ["active", "live"])
-        .order("created_at", { ascending: false })
-        .limit(1)
-        .maybeSingle();
-  
-      console.log("Retry post-burst result:", { retryRound, retryError });
-  
-      if (retryError) {
-        console.error("Retry post-burst fetch failed:", retryError);
-        return;
-      }
-  
-      if (retryRound) {
-        setActiveRound(retryRound);
-        setRoundsReady(true);
-        console.log("Retry round applied after burst");
-      } else {
-        console.warn("Still no round after retry");
-      }
-          }, 1000);
-        }
-      }, 1200);
-
       return;
     }
 
@@ -426,6 +366,52 @@ const handleRoundBurst = useCallback(
   },
   [generateDemoBetsForRound]
 );
+
+const handleRestComplete = useCallback(async () => {
+  if (!isSupabaseConfigured) return;
+
+  console.log("Rest complete → fetching next round");
+
+  const fetchNextRound = async (attempt = 0) => {
+    const { data: nextRound, error } = await supabase
+      .from("game_rounds")
+      .select("*")
+      .in("status", ["active", "live"])
+      .order("created_at", { ascending: false })
+      .limit(1)
+      .maybeSingle();
+
+    console.log("Rest-complete fetch result:", { nextRound, error, attempt });
+
+    if (error) {
+      console.error("Rest-complete fetch failed:", error);
+      return;
+    }
+
+    if (nextRound) {
+      setActiveRound((prev) => {
+        if (prev?.id === nextRound.id) return prev;
+        return nextRound;
+      });
+      setRoundsReady(true);
+      console.log("Next round applied after rest");
+      return;
+    }
+
+    if (attempt < 5) {
+      setTimeout(() => {
+        fetchNextRound(attempt + 1);
+      }, 800);
+    } else {
+      console.warn("No next round found after rest retries");
+      setActiveRound(null);
+      setRoundsReady(false);
+    }
+  };
+
+  fetchNextRound();
+}, []);
+
 
   const handleBetClick = useCallback(
     async (action, stake, side) => {
@@ -527,7 +513,7 @@ const handleRoundBurst = useCallback(
             burstPoint={activeRound?.burst_point ?? null}
             onMultiplierUpdate={null}
             onBurst={handleRoundBurst}
-            onRestComplete={() => {}}
+            onRestComplete={handleRestComplete}
           />
           
           <BetPanel panelId="1" side="top" session={session} onBetClick={handleBetClick} disabled={!canBet} />
