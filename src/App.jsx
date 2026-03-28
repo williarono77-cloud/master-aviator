@@ -523,6 +523,7 @@ const handleRoundBurst = useCallback(
           )}
           <GameCard
             key={activeRound?.id ?? "no-round"}
+            round={activeRound}
             burstPoint={activeRound?.burst_point ?? null}
             onMultiplierUpdate={null}
             onBurst={handleRoundBurst}
