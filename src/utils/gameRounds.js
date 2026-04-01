@@ -1,4 +1,4 @@
-import { supabase } from "../supabaseClient";
+import { supabase } from "../supabaseClient.js";
 
 /**
  * Read-only fetch of the current active round.
@@ -20,8 +20,8 @@ export async function fetchActiveRound() {
 }
 
 /**
- * Advance the round only when the current round has actually ended.
- * Do not call this from normal page fetch or polling.
+ * Advance round by ending current active and promoting next waiting.
+ * This should only be called by an authorized/admin-capable context.
  */
 export async function advanceRound() {
   const { data, error } = await supabase.rpc("advance_round");
