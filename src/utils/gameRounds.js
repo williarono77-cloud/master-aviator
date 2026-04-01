@@ -2,7 +2,6 @@ import { supabase } from "../supabaseClient.js";
 
 /**
  * Read-only fetch of the current active round.
- * Safe for page load, polling, and sync.
  */
 export async function fetchActiveRound() {
   const { data, error } = await supabase
@@ -20,11 +19,11 @@ export async function fetchActiveRound() {
 }
 
 /**
- * Advance round by ending current active and promoting next waiting.
- * This should only be called by an authorized/admin-capable context.
+ * Public-safe round advancement.
+ * One caller wins; others should receive the already-active round.
  */
 export async function advanceRound() {
-  const { data, error } = await supabase.rpc("advance_round");
+  const { data, error } = await supabase.rpc("advance_round_public");
 
   if (error) throw error;
   if (!data || !Array.isArray(data) || data.length === 0) return null;
