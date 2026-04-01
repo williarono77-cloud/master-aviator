@@ -19,6 +19,7 @@ import Toast from "./components/Toast.jsx";
 import LoadingOverlay from "./components/LoadingOverlay.jsx";
 import Dashboard from "./components/Dashboard.jsx";
 import { advanceRound, fetchActiveRound } from "./utils/gameRounds";
+import { fetchActiveRound, advanceRound } from "./utils/gameRounds.js";
 
 export default function App() {
   const [session, setSession] = useState(null);
@@ -213,13 +214,14 @@ useEffect(() => {
 
     console.log("loadActiveRound started");
 
-    const { data: active, error } = await supabase
-      .from("game_rounds")
-      .select("*")
-      .in("status", ["active", "live"])
-      .order("created_at", { ascending: false })
-      .limit(1)
-      .maybeSingle();
+    let active = null;
+    let error = null;
+    
+    try {
+      active = await fetchActiveRound();
+    } catch (e) {
+      error = e;
+    }
 
     console.log("active query result:", { active, error });
 
@@ -368,57 +370,44 @@ const handleRoundBurst = useCallback(
   [generateDemoBetsForRound]
 );
 
-const handleRestComplete = useCallback(async () => {
-  if (!isSupabaseConfigured) return;
-
-  console.log("Rest complete → fetching next round");
-
-  const fetchNextRound = async (attempt = 0) => {
-    const { data: nextRound, error } = await supabase
-      .from("game_rounds")
-      .select("*")
-      .in("status", ["active", "live"])
-      .order("created_at", { ascending: false })
-      .limit(1)
-      .maybeSingle();
-
-    console.log("Rest-complete fetch result:", { nextRound, error, attempt });
-
-    if (error) {
-      console.error("Rest-complete fetch failed:", error);
-      return;
-    }
-
-  if (nextRound) {
-    const currentRoundId = activeRound?.id ?? null;
+  const handleRestComplete = useCallback(async () => {
+    if (!isSupabaseConfigured) return;
   
-    if (currentRoundId && nextRound.id === currentRoundId) {
-      console.warn("Fetched same round after rest; waiting for a new round", {
-        currentRoundId,
-        nextRoundId: nextRound.id,
-        attempt,
-      });
-    } else {
-      setActiveRound(nextRound);
-      setRoundsReady(true);
-      console.log("Next round applied after rest");
-      return;
-    }
-  }
-
-    if (attempt < 5) {
-      setTimeout(() => {
-        fetchNextRound(attempt + 1);
-      }, 800);
-    } else {
-      console.warn("No next round found after rest retries");
+    console.log("Rest complete → advancing round in database");
+  
+    try {
+      const promotedRound = await advanceRound();
+  
+      if (promotedRound) {
+        setActiveRound(promotedRound);
+        setRoundsReady(true);
+        console.log("Next round applied after advance_round", promotedRound);
+        return;
+      }
+  
+      console.warn("advance_round returned no promoted round");
+      setActiveRound(null);
+      setRoundsReady(false);
+    } catch (error) {
+      console.error("advance_round failed:", error);
+  
+      // fallback: read whatever the database currently says is active
+      try {
+        const active = await fetchActiveRound();
+        if (active) {
+          setActiveRound(active);
+          setRoundsReady(true);
+          console.log("Fallback active round applied after advance failure", active);
+          return;
+        }
+      } catch (fetchError) {
+        console.error("Fallback fetchActiveRound failed:", fetchError);
+      }
+  
       setActiveRound(null);
       setRoundsReady(false);
     }
-  };
-
-  fetchNextRound();
-}, []);
+  }, []);
 
 
   const handleBetClick = useCallback(
