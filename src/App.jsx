@@ -51,6 +51,7 @@ export default function App() {
   const userId = session?.user?.id ?? null;
 
   const clearMessage = useCallback(() => setMessage(null), []);
+  const finishedRoundRef = useRef(null);
 
   const refreshPrivateData = useCallback(async () => {
     if (!userId) {
@@ -337,11 +338,14 @@ const handleRoundBurst = useCallback(
     if (!finishedRound) return;
 
     if (isSupabaseConfigured) {
+      finishedRoundRef.current = finishedRound;
+    
       console.log("Round burst reached user page:", {
         id: finishedRound?.id ?? null,
         round_id: finishedRound?.round_id ?? null,
         burst_point: finishedRound?.burst_point ?? null,
       });
+    
       return;
     }
 
@@ -374,28 +378,46 @@ const handleRoundBurst = useCallback(
   
     console.log("Rest complete → advancing round in database");
   
+    const finishedRoundId = finishedRoundRef.current?.id ?? null;
+  
+    if (!finishedRoundId) {
+      console.warn("No finished round id available at rest completion");
+      return;
+    }
+  
     try {
-      const promotedRound = await advanceRound();
+      const promotedRound = await advanceRound(finishedRoundId);
   
       if (promotedRound) {
         setActiveRound(promotedRound);
         setRoundsReady(true);
-        console.log("Next round applied after advance_round", promotedRound);
+        finishedRoundRef.current = null;
+        console.log("Next round applied after advance_round_public", promotedRound);
         return;
       }
   
-      console.warn("advance_round returned no promoted round");
+      console.warn("advance_round_public returned no promoted round");
+  
+      const active = await fetchActiveRound();
+      if (active) {
+        setActiveRound(active);
+        setRoundsReady(true);
+        finishedRoundRef.current = null;
+        console.log("Fallback active round applied after null promotion", active);
+        return;
+      }
+  
       setActiveRound(null);
       setRoundsReady(false);
     } catch (error) {
-      console.error("advance_round failed:", error);
+      console.error("advance_round_public failed:", error);
   
-      // fallback: read whatever the database currently says is active
       try {
         const active = await fetchActiveRound();
         if (active) {
           setActiveRound(active);
           setRoundsReady(true);
+          finishedRoundRef.current = null;
           console.log("Fallback active round applied after advance failure", active);
           return;
         }
