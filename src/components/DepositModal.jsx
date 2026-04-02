@@ -90,7 +90,7 @@ import { getAppConfigValue } from "../utils/appConfig";
     return () => {
       supabase.removeChannel(channel);
     };
-  }, [depositId, onSuccess]);
+  }, [depositId, onApproved, onClose]);
 
   if (!isOpen) return null;
 
