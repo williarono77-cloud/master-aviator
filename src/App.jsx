@@ -561,7 +561,8 @@ const handleRoundBurst = useCallback(
       <DepositModal
         isOpen={depositModalOpen}
         onClose={() => setDepositModalOpen(false)}
-        onSuccess={handleDepositSuccess}
+        onSubmitted={handleDepositSuccess}
+        onApproved={refreshPrivateData}
       />
 
       <WithdrawModal
