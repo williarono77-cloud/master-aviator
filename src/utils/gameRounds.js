@@ -1,8 +1,5 @@
 import { supabase } from "../supabaseClient.js";
 
-/**
- * Read-only fetch of the current active round.
- */
 export async function fetchActiveRound() {
   const { data, error } = await supabase
     .from("game_rounds")
@@ -18,12 +15,14 @@ export async function fetchActiveRound() {
   return data ?? null;
 }
 
-/**
- * Public-safe round advancement.
- * One caller wins; others should receive the already-active round.
- */
-export async function advanceRound() {
-  const { data, error } = await supabase.rpc("advance_round_public");
+export async function advanceRound(finishedRoundId) {
+  if (!finishedRoundId) {
+    throw new Error("advanceRound requires finishedRoundId");
+  }
+
+  const { data, error } = await supabase.rpc("advance_round_public", {
+    p_finished_round_id: finishedRoundId,
+  });
 
   if (error) throw error;
   if (!data || !Array.isArray(data) || data.length === 0) return null;
