@@ -75,7 +75,6 @@ import { getAppConfigValue } from "../utils/appConfig";
             setMessage({ type: "success", text: "Deposit approved! Wallet updated." });
             if (onApproved) onApproved();
             onClose();
-          }
           } else if (newStatus === "rejected") {
             setMessage({
               type: "error",
