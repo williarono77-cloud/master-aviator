@@ -2,7 +2,7 @@ import React, { useEffect, useMemo, useState } from "react";
 import { supabase } from "../supabaseClient.js";
 import { getAppConfigValue } from "../utils/appConfig";
 
-export default function DepositModal({ isOpen, onClose, onSuccess }) {
+  export default function DepositModal({ isOpen, onClose, onSubmitted, onApproved }) {
   const [loading, setLoading] = useState(false);
 
   const [mpesaNumber, setMpesaNumber] = useState("07XXXXXXXX");
@@ -73,8 +73,9 @@ export default function DepositModal({ isOpen, onClose, onSuccess }) {
 
           if (newStatus === "approved") {
             setMessage({ type: "success", text: "Deposit approved! Wallet updated." });
-            if (onSuccess) onSuccess();
+            if (onApproved) onApproved();
             onClose();
+          }
           } else if (newStatus === "rejected") {
             setMessage({
               type: "error",
@@ -150,13 +151,10 @@ export default function DepositModal({ isOpen, onClose, onSuccess }) {
 
       if (error) throw error;
 
-      setStatus("submitted");
-      setMessage({
-        type: "success",
-        text: "Code submitted! Waiting for admin approval.",
-      });
-      if (onSuccess) onSuccess();
-      onClose();
+    setStatus("submitted");
+    setMessage({ type: "success", text: "Code submitted! Waiting for admin approval." });
+    if (onSubmitted) onSubmitted();
+    onClose();
     } catch (e) {
       setMessage({ type: "error", text: e?.message || "Failed to submit reference code." });
     } finally {
