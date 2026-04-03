@@ -126,64 +126,6 @@ const generateDemoRounds = useCallback(() => {
     return () => { cancelled = true }
   }, [user?.id])
 
-/////
-  //////
-  /////
-  useEffect(() => {
-  if (!isSupabaseConfigured) return;
-
-  let cancelled = false;
-
-  const loadActiveRound = async () => {
-    try {
-      const active = await fetchActiveRound();
-
-      if (cancelled) return;
-
-      if (active) {
-        setActiveRound((prev) => {
-          if (prev?.id === active.id) return prev;
-          return active;
-        });
-        setLiveRoundNumber(active.round_number ?? null);
-        setRoundsReady(true);
-        console.log("Admin active round updated:", active);
-      } else {
-        setActiveRound(null);
-        setLiveRoundNumber(null);
-        setRoundsReady(false);
-        console.warn("Admin: no active round found");
-      }
-    } catch (error) {
-      if (cancelled) return;
-      console.error("Admin active round fetch failed:", error);
-      setActiveRound(null);
-      setLiveRoundNumber(null);
-      setRoundsReady(false);
-    }
-  };
-
-  loadActiveRound();
-
-  const channel = supabase
-    .channel("admin-active-round-sync")
-    .on(
-      "postgres_changes",
-      { event: "*", schema: "public", table: "game_rounds" },
-      () => {
-        loadActiveRound();
-      }
-    )
-    .subscribe();
-
-  return () => {
-    cancelled = true;
-    supabase.removeChannel(channel);
-  };
-}, []);
-
-
-  
   // Redirect non-admin
   useEffect(() => {
     if (isLocalDemo) return
@@ -282,6 +224,24 @@ const fetchLedger = useCallback(async () => {
   }
 }, [])
 
+//////
+    const refreshAdminActiveRound = useCallback(async () => {
+    try {
+      const active = await fetchActiveRound();
+  
+      setActiveRound(active ?? null);
+      setLiveRoundNumber(active?.round_number ?? null);
+      setRoundsReady(!!active);
+  
+      console.log('Admin active round refreshed:', active);
+    } catch (error) {
+      console.error('Admin active round refresh failed:', error);
+      setActiveRound(null);
+      setLiveRoundNumber(null);
+      setRoundsReady(false);
+    }
+  }, []);
+  
   const fetchAdminRoundsQueue = useCallback(async () => {
     setRoundsQueueError(null)
     setRoundsQueueLoading(true)
@@ -473,19 +433,19 @@ const fetchLiveRound = useCallback(async () => {
     }
   }, [generateWaitingRounds])
 
-useEffect(() => {
-  if (!isSupabaseConfigured) return
-  if (profileRole !== 'admin') return
-
-  fetchWithdrawals()
-  fetchDeposits()
-  fetchLedger()
-  fetchStats()
-  fetchAdminRoundsQueue()
-  fetchRecentBurstedRounds()
-  fetchLiveRound()
-}, [profileRole, fetchWithdrawals, fetchDeposits, fetchLedger, fetchStats, fetchAdminRoundsQueue, fetchRecentBurstedRounds, fetchLiveRound])
+    useEffect(() => {
+      if (!isSupabaseConfigured) return
+      if (profileRole !== 'admin') return
     
+      fetchWithdrawals()
+      fetchDeposits()
+      fetchLedger()
+      fetchStats()
+      fetchAdminRoundsQueue()
+      fetchRecentBurstedRounds()
+      refreshAdminActiveRound()
+    }, [profileRole, fetchWithdrawals, fetchDeposits, fetchLedger, fetchStats, fetchAdminRoundsQueue, fetchRecentBurstedRounds, refreshAdminActiveRound])
+      
 // Realtime: withdrawal_requests and deposits
  useEffect(() => {
   if (isLocalDemo) return
@@ -509,6 +469,7 @@ useEffect(() => {
       () => {
         fetchAdminRoundsQueue()
         fetchRecentBurstedRounds()
+        refreshAdminActiveRound()
       }
     )
     .subscribe()
@@ -516,8 +477,8 @@ useEffect(() => {
   return () => {
     supabase.removeChannel(channel)
   }
-}, [isLocalDemo, isSupabaseConfigured, profileRole, fetchWithdrawals, fetchDeposits, fetchAdminRoundsQueue, fetchRecentBurstedRounds, fetchLiveRound])
-  
+}, [isLocalDemo, isSupabaseConfigured, profileRole, fetchWithdrawals, fetchDeposits, fetchAdminRoundsQueue, fetchRecentBurstedRounds, refreshAdminActiveRound]
+           
   // Local demo: auto-generate + broadcast rounds on mount
   useEffect(() => {
     if (!isLocalDemo) return
