@@ -34,6 +34,15 @@ export default function App() {
   const [withdrawModalOpen, setWithdrawModalOpen] = useState(false);
   const [fullscreen, setFullscreen] = useState(false);
   const [feedTab, setFeedTab] = useState("all"); // 'all' | 'previous' | 'top'
+  const finishedRoundRef = useRef(null);
+  const pendingRoundRef = useRef(null);
+  const [pendingRound, setPendingRound] = useState(null);
+  const [currentMultiplier, setCurrentMultiplier] = useState(1);
+  const [roundPhase, setRoundPhase] = useState("break");
+  const [panelBets, setPanelBets] = useState({
+    top: null,
+    bottom: null,
+  });
 
   // Data state
   const [wallet, setWallet] = useState(null);
@@ -51,8 +60,6 @@ export default function App() {
   const userId = session?.user?.id ?? null;
 
   const clearMessage = useCallback(() => setMessage(null), []);
-  const finishedRoundRef = useRef(null);
-  const pendingRoundRef = useRef(null);
 
   const refreshPrivateData = useCallback(async () => {
     if (!userId) {
@@ -330,91 +337,138 @@ useEffect(() => {
     }
   }, []);
 
-  const betRound = activeRound ?? null;
-  const betRoundPublicId = betRound?.round_id ?? null;
-  const canBet = !!betRound && !!betRoundPublicId;
+  const betTargetRound = roundPhase === "break" ? pendingRound ?? activeRound : activeRound;
+  const betRoundPublicId = betTargetRound?.round_id ?? null;
+  const canBet = !!betTargetRound && !!betRoundPublicId;
 
-  const handleRoundBurst = useCallback(
-  async (finishedRound) => {
-    if (!finishedRound) return;
-
-    if (isSupabaseConfigured) {
-      finishedRoundRef.current = finishedRound;
-
-      console.log("Round burst reached user page:", {
-        id: finishedRound?.id ?? null,
-        round_id: finishedRound?.round_id ?? null,
-        burst_point: finishedRound?.burst_point ?? null,
-      });
-
-      try {
-        const promotedRound = await advanceRound(finishedRound.id);
-        pendingRoundRef.current = promotedRound ?? null;
-
-        console.log("Round advanced during break:", promotedRound);
-      } catch (error) {
-        console.error("advance_round_public failed during burst:", error);
-
-        try {
-          const active = await fetchActiveRound();
-          pendingRoundRef.current = active ?? null;
-          console.log("Fallback active round fetched during break:", active);
-        } catch (fetchError) {
-          console.error("Fallback fetchActiveRound failed during burst:", fetchError);
-          pendingRoundRef.current = null;
-        }
-      }
-
+  const handleRoundStateChange = useCallback((state) => {
+    if (state === "rest") {
+      setRoundPhase("break");
       return;
     }
-
-    const roundBets = generateDemoBetsForRound(finishedRound, { count: 10 });
-
-    setDemoPreviousRound({
-      result: Number(finishedRound?.burst_point ?? 0),
-      bets: roundBets.map((b) => ({
-        id: b.id,
-        player: b.player,
-        bet_kes: b.bet_kes,
-        multiplier: b.multiplier,
-        win_kes: b.win_kes,
-      })),
-    });
-
-    setDemoAllBets((prev) => [...roundBets, ...(prev ?? [])].slice(0, 50));
-
-    setDemoTopBets((prev) => {
-      const merged = [...roundBets, ...(prev ?? [])];
-      merged.sort((a, b) => (b.win_kes ?? 0) - (a.win_kes ?? 0));
-      return merged.slice(0, 20);
-    });
-  },
-  [generateDemoBetsForRound]
-);
-
-const handleRestComplete = useCallback(async () => {
-  if (!isSupabaseConfigured) return;
-
-  console.log("Rest complete → applying next round");
-
-  let nextRound = pendingRoundRef.current;
-
-  if (!nextRound) {
-    try {
-      nextRound = await fetchActiveRound();
-      console.log("Fetched active round at rest complete:", nextRound);
-    } catch (error) {
-      console.error("fetchActiveRound failed at rest complete:", error);
-      nextRound = null;
+  
+    if (state === "burst") {
+      setRoundPhase("burst");
+      return;
     }
-  }
+  
+    setRoundPhase("rising");
+  }, []);
+  
+  const handleRoundBurst = useCallback(
+    async (finishedRound) => {
+      if (!finishedRound) return;
+  
+      setRoundPhase("burst");
+      setCurrentMultiplier(Number(finishedRound?.burst_point ?? 1));
+  
+      const hadOpenBets = Object.values(panelBets).some(
+        (bet) => bet?.status === "placed"
+      );
+  
+      if (hadOpenBets) {
+        setPanelBets((prev) => ({
+          top:
+            prev.top?.status === "placed"
+              ? {
+                  ...prev.top,
+                  status: "lost",
+                  payout: 0,
+                  resolvedMultiplier: Number(finishedRound?.burst_point ?? 0),
+                }
+              : prev.top,
+          bottom:
+            prev.bottom?.status === "placed"
+              ? {
+                  ...prev.bottom,
+                  status: "lost",
+                  payout: 0,
+                  resolvedMultiplier: Number(finishedRound?.burst_point ?? 0),
+                }
+              : prev.bottom,
+        }));
+  
+        setMessage({
+          type: "error",
+          text: "Round bursted before cashout. Open bets lost.",
+        });
+      }
+  
+      if (isSupabaseConfigured) {
+        finishedRoundRef.current = finishedRound;
+  
+        try {
+          const promotedRound = await advanceRound(finishedRound.id);
+          pendingRoundRef.current = promotedRound ?? null;
+          setPendingRound(promotedRound ?? null);
+        } catch (error) {
+          console.error("advance_round_public failed during burst:", error);
+  
+          try {
+            const active = await fetchActiveRound();
+            pendingRoundRef.current = active ?? null;
+            setPendingRound(active ?? null);
+          } catch (fetchError) {
+            console.error("Fallback fetchActiveRound failed during burst:", fetchError);
+            pendingRoundRef.current = null;
+            setPendingRound(null);
+          }
+        }
+  
+        return;
+      }
+  
+      const roundBets = generateDemoBetsForRound(finishedRound, { count: 10 });
+  
+      setDemoPreviousRound({
+        result: Number(finishedRound?.burst_point ?? 0),
+        bets: roundBets.map((b) => ({
+          id: b.id,
+          player: b.player,
+          bet_kes: b.bet_kes,
+          multiplier: b.multiplier,
+          win_kes: b.win_kes,
+        })),
+      });
+  
+      setDemoAllBets((prev) => [...roundBets, ...(prev ?? [])].slice(0, 50));
+  
+      setDemoTopBets((prev) => {
+        const merged = [...roundBets, ...(prev ?? [])];
+        merged.sort((a, b) => (b.win_kes ?? 0) - (a.win_kes ?? 0));
+        return merged.slice(0, 20);
+      });
+    },
+    [generateDemoBetsForRound, panelBets]
+  );
 
-  setActiveRound(nextRound ?? null);
-  setRoundsReady(!!nextRound);
-
-  finishedRoundRef.current = null;
-  pendingRoundRef.current = null;
-}, []);
+  const handleRestComplete = useCallback(async () => {
+    if (!isSupabaseConfigured) return;
+  
+    let nextRound = pendingRoundRef.current;
+  
+    if (!nextRound) {
+      try {
+        nextRound = await fetchActiveRound();
+      } catch (error) {
+        console.error("fetchActiveRound failed at rest complete:", error);
+        nextRound = null;
+      }
+    }
+  
+    setActiveRound(nextRound ?? null);
+    setRoundsReady(!!nextRound);
+    setPendingRound(null);
+    setCurrentMultiplier(1);
+    setRoundPhase("break");
+    setPanelBets({
+      top: null,
+      bottom: null,
+    });
+  
+    finishedRoundRef.current = null;
+    pendingRoundRef.current = null;
+  }, []);
 
 
   const handleBetClick = useCallback(
@@ -423,55 +477,132 @@ const handleRestComplete = useCallback(async () => {
         setAuthModalOpen(true);
         return;
       }
-
-      if (action !== "bet" || !userId) return;
+  
+      if (!userId) return;
+  
+      const validSide = side === "top" || side === "bottom" ? side : "top";
+      const existingBet = panelBets[validSide] ?? null;
+  
+      if (action === "cashout") {
+        if (!existingBet || existingBet.status !== "placed") {
+          setMessage({ type: "error", text: "No active bet to cash out." });
+          return;
+        }
+  
+        if (roundPhase !== "rising") {
+          setMessage({ type: "error", text: "Cashout is only allowed while the round is rising." });
+          return;
+        }
+  
+        const liveMultiplier = Number(currentMultiplier);
+  
+        if (!Number.isFinite(liveMultiplier) || liveMultiplier <= 1) {
+          setMessage({ type: "error", text: "Invalid cashout multiplier." });
+          return;
+        }
+  
+        const payout = Number((existingBet.stake * liveMultiplier).toFixed(2));
+  
+        setPanelBets((prev) => ({
+          ...prev,
+          [validSide]: {
+            ...existingBet,
+            status: "won",
+            payout,
+            resolvedMultiplier: liveMultiplier,
+          },
+        }));
+  
+        setMessage({
+          type: "success",
+          text: `Cashout captured at ${liveMultiplier.toFixed(2)}x.`,
+        });
+  
+        return;
+      }
+  
+      if (action !== "bet") return;
+  
       if (!roundsReady) {
-        setMessage({ type: "error", text: "Waiting for rounds. Admin must generate rounds." });
+        setMessage({ type: "error", text: "Waiting for rounds." });
         return;
       }
+  
+      if (roundPhase !== "break") {
+        setMessage({ type: "error", text: "You can only place a bet during the break." });
+        return;
+      }
+  
+      if (existingBet?.status === "placed") {
+        setMessage({ type: "error", text: "You already have an open bet on this panel." });
+        return;
+      }
+  
       if (!canBet) {
-        setMessage({ type: "error", text: "Betting is closed. Round is not in scheduled state." });
+        setMessage({ type: "error", text: "No bettable round is ready yet." });
         return;
       }
-
+  
       const stakeNumber = Number(stake);
-
+  
       if (!Number.isFinite(stakeNumber)) {
         setMessage({ type: "error", text: "Invalid stake amount." });
         return;
       }
+  
       if (stakeNumber < 100) {
         setMessage({ type: "error", text: "Minimum bet amount is KSh 100." });
         return;
       }
-
+  
       const available = (wallet?.available_cents ?? 0) / 100;
+  
       if (stakeNumber > available) {
         setMessage({ type: "error", text: "Insufficient balance." });
         return;
       }
-
-    const roundIdText = betRoundPublicId ? String(betRoundPublicId) : "";
+  
+      const roundIdText = betRoundPublicId ? String(betRoundPublicId) : "";
+  
       if (!roundIdText) {
-        setMessage({ type: "error", text: "No bettable round. Waiting for rounds." });
+        setMessage({ type: "error", text: "No bettable round available." });
         return;
       }
-
-      const validSide = side === "top" || side === "bottom" ? side : "top";
+  
       try {
         const stakeCents = Math.round(stakeNumber * 100);
-        const { error } = await supabase.rpc("game_place_bet", {
-          p_round_id: String(roundIdText),
+  
+        const { data, error } = await supabase.rpc("game_place_bet", {
+          p_round_id: roundIdText,
           p_side: validSide,
           p_stake_cents: stakeCents,
         });
-
+  
         if (error) throw error;
-
-        setMessage({ type: "success", text: `Bet placed (${validSide}): KSh ${stakeNumber.toFixed(2)}` });
+  
+        setPanelBets((prev) => ({
+          ...prev,
+          [validSide]: {
+            betId: data ?? null,
+            side: validSide,
+            roundId: roundIdText,
+            stake: stakeNumber,
+            stakeCents,
+            status: "placed",
+            payout: null,
+            resolvedMultiplier: null,
+          },
+        }));
+  
+        setMessage({
+          type: "success",
+          text: `Bet placed (${validSide}) for KSh ${stakeNumber.toFixed(2)}.`,
+        });
+  
         refreshPrivateData();
       } catch (e) {
         const msg = e?.message ?? "";
+  
         if (msg.includes("INSUFFICIENT_FUNDS")) {
           setMessage({ type: "error", text: "Insufficient balance." });
         } else if (msg.includes("BETTING_CLOSED")) {
@@ -481,8 +612,18 @@ const handleRestComplete = useCallback(async () => {
         }
       }
     },
-      [userId, wallet?.available_cents, betRoundPublicId, roundsReady, canBet, refreshPrivateData]
-     );
+    [
+      userId,
+      panelBets,
+      roundPhase,
+      currentMultiplier,
+      roundsReady,
+      canBet,
+      wallet?.available_cents,
+      betRoundPublicId,
+      refreshPrivateData,
+    ]
+  );
 
   if (loading) {
     return <LoadingOverlay />;
@@ -525,14 +666,34 @@ const handleRestComplete = useCallback(async () => {
             key={activeRound?.id ?? "no-round"}
             round={activeRound}
             burstPoint={activeRound?.burst_point ?? null}
-            onMultiplierUpdate={null}
+            onMultiplierUpdate={setCurrentMultiplier}
             onBurst={handleRoundBurst}
             onRestComplete={handleRestComplete}
+            onRoundStateChange={handleRoundStateChange}
           />
           
-          <BetPanel panelId="1" side="top" session={session} onBetClick={handleBetClick} disabled={!canBet} />
-          <BetPanel panelId="2" side="bottom" session={session} onBetClick={handleBetClick} disabled={!canBet} />
-
+          <BetPanel
+            panelId="1"
+            side="top"
+            session={session}
+            onBetClick={handleBetClick}
+            disabled={!canBet}
+            roundPhase={roundPhase}
+            activeBet={panelBets.top}
+            currentMultiplier={currentMultiplier}
+          />
+          
+          <BetPanel
+            panelId="2"
+            side="bottom"
+            session={session}
+            onBetClick={handleBetClick}
+            disabled={!canBet}
+            roundPhase={roundPhase}
+            activeBet={panelBets.bottom}
+            currentMultiplier={currentMultiplier}
+          />
+          
           <FeedTabs activeTab={feedTab} onTabChange={setFeedTab} />
           {feedTab === "all" && <AllBetsTable bets={!isSupabaseConfigured ? demoAllBets : null} />}
           {feedTab === "previous" && <PreviousRound data={!isSupabaseConfigured ? demoPreviousRound : null} />}
