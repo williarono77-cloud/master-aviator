@@ -225,22 +225,39 @@ const fetchLedger = useCallback(async () => {
 }, [])
 
 //////
-    const refreshAdminActiveRound = useCallback(async () => {
-    try {
-      const active = await fetchActiveRound();
-  
-      setActiveRound(active ?? null);
-      setLiveRoundNumber(active?.round_number ?? null);
-      setRoundsReady(!!active);
-  
-      console.log('Admin active round refreshed:', active);
-    } catch (error) {
-      console.error('Admin active round refresh failed:', error);
-      setActiveRound(null);
-      setLiveRoundNumber(null);
-      setRoundsReady(false);
-    }
-  }, []);
+const refreshAdminActiveRound = useCallback(async () => {
+  try {
+    const active = await fetchActiveRound();
+
+    setActiveRound((prev) => {
+      const prevId = prev?.id ?? null;
+      const nextId = active?.id ?? null;
+      const prevStatus = prev?.status ?? null;
+      const nextStatus = active?.status ?? null;
+
+      if (prevId === nextId && prevStatus === nextStatus) {
+        return prev;
+      }
+
+      return active ?? null;
+    });
+
+    setLiveRoundNumber((prev) => {
+      const nextRoundNumber = active?.round_number ?? null;
+      return prev === nextRoundNumber ? prev : nextRoundNumber;
+    });
+
+    setRoundsReady((prev) => {
+      const nextReady = !!active;
+      return prev === nextReady ? prev : nextReady;
+    });
+  } catch (error) {
+    console.error('Admin active round refresh failed:', error);
+    setActiveRound(null);
+    setLiveRoundNumber(null);
+    setRoundsReady(false);
+  }
+}, []);
   
   const fetchAdminRoundsQueue = useCallback(async () => {
     setRoundsQueueError(null)
@@ -446,22 +463,6 @@ const fetchLiveRound = useCallback(async () => {
       refreshAdminActiveRound()
     }, [profileRole, fetchWithdrawals, fetchDeposits, fetchLedger, fetchStats, fetchAdminRoundsQueue, fetchRecentBurstedRounds, refreshAdminActiveRound])
 
-
-  useEffect(() => {
-  if (isLocalDemo) return
-  if (!isSupabaseConfigured) return
-  if (profileRole !== 'admin') return
-
-  refreshAdminActiveRound()
-
-  const id = window.setInterval(() => {
-    refreshAdminActiveRound()
-  }, 1000)
-
-  return () => {
-    window.clearInterval(id)
-  }
-}, [isLocalDemo, isSupabaseConfigured, profileRole, refreshAdminActiveRound])
     // Realtime: withdrawal_requests and deposits
     useEffect(() => {
       if (isLocalDemo) return
