@@ -241,13 +241,6 @@ const refreshAdminActiveRound = useCallback(async () => {
     setRoundsReady(false);
   }
 }, []);
-
-  const refreshAdminRoundData = useCallback(async () => {
-  await Promise.all([
-    fetchAdminRoundsQueue(),
-    refreshAdminActiveRound(),
-  ]);
-}, [fetchAdminRoundsQueue, refreshAdminActiveRound]);
   
   const fetchAdminRoundsQueue = useCallback(async () => {
     setRoundsQueueError(null)
@@ -277,6 +270,13 @@ const refreshAdminActiveRound = useCallback(async () => {
     }
   }, [])
 
+  const refreshAdminRoundData = useCallback(async () => {
+  await Promise.all([
+    fetchAdminRoundsQueue(),
+    refreshAdminActiveRound(),
+  ]);
+}, [fetchAdminRoundsQueue, refreshAdminActiveRound]);
+  
 const fetchRecentBurstedRounds = useCallback(async () => {
   if (!isSupabaseConfigured) return
 
