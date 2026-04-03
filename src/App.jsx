@@ -52,6 +52,7 @@ export default function App() {
 
   const clearMessage = useCallback(() => setMessage(null), []);
   const finishedRoundRef = useRef(null);
+  const pendingRoundRef = useRef(null);
 
   const refreshPrivateData = useCallback(async () => {
     if (!userId) {
@@ -332,20 +333,38 @@ useEffect(() => {
   const betRound = activeRound ?? null;
   const betRoundPublicId = betRound?.round_id ?? null;
   const canBet = !!betRound && !!betRoundPublicId;
-  
-const handleRoundBurst = useCallback(
+
+  const handleRoundBurst = useCallback(
   async (finishedRound) => {
     if (!finishedRound) return;
 
     if (isSupabaseConfigured) {
       finishedRoundRef.current = finishedRound;
-    
+
       console.log("Round burst reached user page:", {
         id: finishedRound?.id ?? null,
         round_id: finishedRound?.round_id ?? null,
         burst_point: finishedRound?.burst_point ?? null,
       });
-    
+
+      try {
+        const promotedRound = await advanceRound(finishedRound.id);
+        pendingRoundRef.current = promotedRound ?? null;
+
+        console.log("Round advanced during break:", promotedRound);
+      } catch (error) {
+        console.error("advance_round_public failed during burst:", error);
+
+        try {
+          const active = await fetchActiveRound();
+          pendingRoundRef.current = active ?? null;
+          console.log("Fallback active round fetched during break:", active);
+        } catch (fetchError) {
+          console.error("Fallback fetchActiveRound failed during burst:", fetchError);
+          pendingRoundRef.current = null;
+        }
+      }
+
       return;
     }
 
@@ -373,62 +392,29 @@ const handleRoundBurst = useCallback(
   [generateDemoBetsForRound]
 );
 
-  const handleRestComplete = useCallback(async () => {
-    if (!isSupabaseConfigured) return;
-  
-    console.log("Rest complete → advancing round in database");
-  
-    const finishedRoundId = finishedRoundRef.current?.id ?? null;
-  
-    if (!finishedRoundId) {
-      console.warn("No finished round id available at rest completion");
-      return;
-    }
-  
+const handleRestComplete = useCallback(async () => {
+  if (!isSupabaseConfigured) return;
+
+  console.log("Rest complete → applying next round");
+
+  let nextRound = pendingRoundRef.current;
+
+  if (!nextRound) {
     try {
-      const promotedRound = await advanceRound(finishedRoundId);
-  
-      if (promotedRound) {
-        setActiveRound(promotedRound);
-        setRoundsReady(true);
-        finishedRoundRef.current = null;
-        console.log("Next round applied after advance_round_public", promotedRound);
-        return;
-      }
-  
-      console.warn("advance_round_public returned no promoted round");
-  
-      const active = await fetchActiveRound();
-      if (active) {
-        setActiveRound(active);
-        setRoundsReady(true);
-        finishedRoundRef.current = null;
-        console.log("Fallback active round applied after null promotion", active);
-        return;
-      }
-  
-      setActiveRound(null);
-      setRoundsReady(false);
+      nextRound = await fetchActiveRound();
+      console.log("Fetched active round at rest complete:", nextRound);
     } catch (error) {
-      console.error("advance_round_public failed:", error);
-  
-      try {
-        const active = await fetchActiveRound();
-        if (active) {
-          setActiveRound(active);
-          setRoundsReady(true);
-          finishedRoundRef.current = null;
-          console.log("Fallback active round applied after advance failure", active);
-          return;
-        }
-      } catch (fetchError) {
-        console.error("Fallback fetchActiveRound failed:", fetchError);
-      }
-  
-      setActiveRound(null);
-      setRoundsReady(false);
+      console.error("fetchActiveRound failed at rest complete:", error);
+      nextRound = null;
     }
-  }, []);
+  }
+
+  setActiveRound(nextRound ?? null);
+  setRoundsReady(!!nextRound);
+
+  finishedRoundRef.current = null;
+  pendingRoundRef.current = null;
+}, []);
 
 
   const handleBetClick = useCallback(
