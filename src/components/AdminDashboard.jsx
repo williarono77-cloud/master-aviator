@@ -446,39 +446,48 @@ const fetchLiveRound = useCallback(async () => {
       refreshAdminActiveRound()
     }, [profileRole, fetchWithdrawals, fetchDeposits, fetchLedger, fetchStats, fetchAdminRoundsQueue, fetchRecentBurstedRounds, refreshAdminActiveRound])
       
-// Realtime: withdrawal_requests and deposits
- useEffect(() => {
-  if (isLocalDemo) return
-  if (!isSupabaseConfigured || profileRole !== 'admin') return
-
-  const channel = supabase
-    .channel('admin-updates')
-    .on(
-      'postgres_changes',
-      { event: '*', schema: 'public', table: 'withdrawal_requests' },
-      () => fetchWithdrawals()
-    )
-    .on(
-      'postgres_changes',
-      { event: '*', schema: 'public', table: 'deposits' },
-      () => fetchDeposits()
-    )
-    .on(
-      'postgres_changes',
-      { event: '*', schema: 'public', table: 'game_rounds' },
-      () => {
-        fetchAdminRoundsQueue()
-        fetchRecentBurstedRounds()
-        refreshAdminActiveRound()
+    // Realtime: withdrawal_requests and deposits
+    useEffect(() => {
+      if (isLocalDemo) return
+      if (!isSupabaseConfigured || profileRole !== 'admin') return
+    
+      const channel = supabase
+        .channel('admin-updates')
+        .on(
+          'postgres_changes',
+          { event: '*', schema: 'public', table: 'withdrawal_requests' },
+          () => fetchWithdrawals()
+        )
+        .on(
+          'postgres_changes',
+          { event: '*', schema: 'public', table: 'deposits' },
+          () => fetchDeposits()
+        )
+        .on(
+          'postgres_changes',
+          { event: '*', schema: 'public', table: 'game_rounds' },
+          () => {
+            fetchAdminRoundsQueue()
+            fetchRecentBurstedRounds()
+            refreshAdminActiveRound()
+          }
+        )
+        .subscribe()
+    
+      return () => {
+        supabase.removeChannel(channel)
       }
-    )
-    .subscribe()
-
-  return () => {
-    supabase.removeChannel(channel)
-  }
-}, [isLocalDemo, isSupabaseConfigured, profileRole, fetchWithdrawals, fetchDeposits, fetchAdminRoundsQueue, fetchRecentBurstedRounds, refreshAdminActiveRound]
-           
+    }, [
+      isLocalDemo,
+      isSupabaseConfigured,
+      profileRole,
+      fetchWithdrawals,
+      fetchDeposits,
+      fetchAdminRoundsQueue,
+      fetchRecentBurstedRounds,
+      refreshAdminActiveRound,
+    ])
+  
   // Local demo: auto-generate + broadcast rounds on mount
   useEffect(() => {
     if (!isLocalDemo) return
