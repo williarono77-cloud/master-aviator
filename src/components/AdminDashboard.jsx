@@ -445,7 +445,23 @@ const fetchLiveRound = useCallback(async () => {
       fetchRecentBurstedRounds()
       refreshAdminActiveRound()
     }, [profileRole, fetchWithdrawals, fetchDeposits, fetchLedger, fetchStats, fetchAdminRoundsQueue, fetchRecentBurstedRounds, refreshAdminActiveRound])
-      
+
+
+  useEffect(() => {
+  if (isLocalDemo) return
+  if (!isSupabaseConfigured) return
+  if (profileRole !== 'admin') return
+
+  refreshAdminActiveRound()
+
+  const id = window.setInterval(() => {
+    refreshAdminActiveRound()
+  }, 1000)
+
+  return () => {
+    window.clearInterval(id)
+  }
+}, [isLocalDemo, isSupabaseConfigured, profileRole, refreshAdminActiveRound])
     // Realtime: withdrawal_requests and deposits
     useEffect(() => {
       if (isLocalDemo) return
@@ -469,7 +485,6 @@ const fetchLiveRound = useCallback(async () => {
           () => {
             fetchAdminRoundsQueue()
             fetchRecentBurstedRounds()
-            refreshAdminActiveRound()
           }
         )
         .subscribe()
