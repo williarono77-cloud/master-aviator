@@ -151,10 +151,8 @@ import { getAppConfigValue } from "../utils/appConfig";
       if (error) throw error;
 
     setStatus("submitted");
-    setMessage({
-      type: "success",
-      text: "Deposit submitted successfully. It has been sent to admin for approval.",
-    });
+    if (onSubmitted) onSubmitted();
+    onClose();
     } catch (e) {
       setMessage({ type: "error", text: e?.message || "Failed to submit reference code." });
     } finally {
@@ -224,22 +222,11 @@ import { getAppConfigValue } from "../utils/appConfig";
               {loading ? "Submitting..." : status === "submitted" ? "Code Submitted" : "Submit Code"}
             </button>
 
-            {status === "submitted" ? (
-              <div style={{ marginTop: "0.75rem" }}>
-                <p className="muted" style={{ marginBottom: "0.75rem" }}>
-                  Waiting for admin approval…
-                </p>
-                <button
-                  type="button"
-                  onClick={() => {
-                    if (onSubmitted) onSubmitted();
-                    onClose();
-                  }}
-                >
-                  OK
-                </button>
-              </div>
-            ) : null}
+        {status === "submitted" ? (
+          <p className="muted" style={{ marginTop: "0.5rem" }}>
+            Waiting for admin approval…
+          </p>
+        ) : null}
           </div>
         )}
       </div>
