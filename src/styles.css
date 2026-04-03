@@ -477,14 +477,14 @@ main,
 
 .game-card__plane-wrap {
   position: absolute;
-  top: 18%;
+  top: -6%;
   left: 50%;
   transform: translateX(-50%);
   width: clamp(90px, 18vw, 124px);
   height: clamp(56px, 10vw, 78px);
-  z-index: 5;
+  z-index: 6;
   pointer-events: none;
-  filter: drop-shadow(0 8px 18px rgba(0, 0, 0, 0.3));
+  filter: drop-shadow(0 10px 20px rgba(0, 0, 0, 0.32));
 }
 
 .game-card__plane {
