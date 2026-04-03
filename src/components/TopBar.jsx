@@ -1,6 +1,6 @@
 import ThemeToggle from './ThemeToggle.jsx'
 
-export default function TopBar({ onBack, fullscreen, onToggleFullscreen }) {
+export default function TopBar({ onBack, fullscreen, onToggleFullscreen, onDepositClick }) {
   return (
     <div className="top-bar">
       <div className="top-bar__left">
@@ -10,7 +10,13 @@ export default function TopBar({ onBack, fullscreen, onToggleFullscreen }) {
         </button>
       </div>
       <div className="top-bar__right">
-        <ThemeToggle />
+        <button
+          type="button"
+          className="topbar__btn"
+          onClick={onDepositClick}
+        >
+          Deposit
+        </button>
         <button type="button" className="top-bar__fullscreen" onClick={onToggleFullscreen}>
           <span>{fullscreen ? 'Exit Fullscreen' : 'View Fullscreen'}</span>
           <span>{fullscreen ? '⤓' : '⤢'}</span>
