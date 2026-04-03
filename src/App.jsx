@@ -491,7 +491,12 @@ const handleRestComplete = useCallback(async () => {
   return (
     <div className={`app ${fullscreen ? "app--fullscreen" : ""}`}>
      <Toast message={message} onDismiss={clearMessage} />
-      <TopBar onBack={() => {}} fullscreen={fullscreen} onToggleFullscreen={() => setFullscreen((v) => !v)} />
+     <TopBar
+        onBack={() => {}}
+        fullscreen={fullscreen}
+        onToggleFullscreen={() => setFullscreen((v) => !v)}
+        onDepositClick={() => setDepositModalOpen(true)}
+      />
 
       <HeaderRow
         balance={userId ? balance : null}
