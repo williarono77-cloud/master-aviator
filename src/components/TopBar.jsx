@@ -12,10 +12,11 @@ export default function TopBar({ onBack, fullscreen, onToggleFullscreen, onDepos
       <div className="top-bar__right">
         <button
           type="button"
-          className="topbar__btn"
+          className="top-bar__fullscreen"
           onClick={onDepositClick}
         >
-          Deposit
+          <span>Deposit</span>
+          <span>＋</span>
         </button>
         <button type="button" className="top-bar__fullscreen" onClick={onToggleFullscreen}>
           <span>{fullscreen ? 'Exit Fullscreen' : 'View Fullscreen'}</span>
