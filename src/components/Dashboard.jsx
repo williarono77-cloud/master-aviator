@@ -5,7 +5,7 @@ import WithdrawPanel from './WithdrawPanel.jsx'
 import TransactionsPanel from './TransactionsPanel.jsx'
 import PublicGamePanel from './PublicGamePanel.jsx'
 
-export default function Dashboard({ user, setMessage, onBackToGame }) {
+export default function Dashboard({ user, setMessage, onBackToGame, onDepositClick }) {
   const [wallet, setWallet] = useState(null)
   const [deposits, setDeposits] = useState([])
   const [withdrawals, setWithdrawals] = useState([])
@@ -57,11 +57,20 @@ export default function Dashboard({ user, setMessage, onBackToGame }) {
           </button>
         </div>
       )}
-      <div className="dashboard__top">
-        <div className="wallet-display">
-          <span className="wallet-display__label">Wallet balance</span>
+    <div className="dashboard__top" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '1rem', flexWrap: 'wrap' }}>
+      <div className="wallet-display">
+        <span className="wallet-display__label">Wallet balance</span>
           <span className="wallet-display__value">{loading ? '…' : balance}</span>
           <span className="wallet-display__hint">(read-only; updates after deposit callback)</span>
+            {onDepositClick && (
+              <button
+                type="button"
+                className="btn btn--primary"
+                onClick={onDepositClick}
+              >
+                Deposit
+              </button>
+            )}
         </div>
         <button type="button" className="btn btn--secondary" onClick={refresh} disabled={refreshing}>
           {refreshing ? 'Refreshing…' : 'Refresh'}
