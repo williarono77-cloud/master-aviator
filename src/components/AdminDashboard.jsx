@@ -145,10 +145,12 @@ const generateDemoRounds = useCallback(() => {
           if (prev?.id === active.id) return prev;
           return active;
         });
+        setLiveRoundNumber(active.round_number ?? null);
         setRoundsReady(true);
         console.log("Admin active round updated:", active);
       } else {
         setActiveRound(null);
+        setLiveRoundNumber(null);
         setRoundsReady(false);
         console.warn("Admin: no active round found");
       }
@@ -156,6 +158,7 @@ const generateDemoRounds = useCallback(() => {
       if (cancelled) return;
       console.error("Admin active round fetch failed:", error);
       setActiveRound(null);
+      setLiveRoundNumber(null);
       setRoundsReady(false);
     }
   };
@@ -506,7 +509,6 @@ useEffect(() => {
       () => {
         fetchAdminRoundsQueue()
         fetchRecentBurstedRounds()
-        fetchLiveRound()
       }
     )
     .subscribe()
