@@ -135,44 +135,44 @@ export default function GameCard({
       ? "0.00"
       : numMultiplier.toFixed(2);
 
-    return (
-      <div className="game-card">
-        <div className="game-card__visual">
-          <div className="game-card__plane-wrap">
-            <div className="game-card__plane">
-              <div className="game-card__plane-fuselage" />
-              <div className="game-card__plane-wings" />
-              <div className="game-card__plane-tail" />
-              <div className="game-card__plane-x" />
-            </div>
+  return (
+    <div className="game-card">
+      <div className="game-card__visual">
+        <div className="game-card__plane-wrap">
+          <div className="game-card__plane">
+            <div className="game-card__plane-fuselage" />
+            <div className="game-card__plane-wings" />
+            <div className="game-card__plane-tail" />
+            <div className="game-card__plane-x" />
           </div>
+        </div>
   
-          <div className="game-card__rings">
-            <div className="game-card__ring game-card__ring--outer" />
-            <div className="game-card__ring game-card__ring--middle" />
-            <div className="game-card__ring game-card__ring--inner" />
+        <div className="game-card__rings">
+          <div className="game-card__ring game-card__ring--outer" />
+          <div className="game-card__ring game-card__ring--middle" />
+          <div className="game-card__ring game-card__ring--inner" />
   
-            {roundState === "rest" && (
-              <div
-                className="game-card__rest-ring"
-                style={{ "--rest-progress": restProgress }}
-              />
+          {roundState === "rest" && (
+            <div
+              className="game-card__rest-ring"
+              style={{ "--rest-progress": restProgress }}
+            />
+          )}
+  
+          <div className="game-card__multiplier">
+            {roundState === "rest" ? (
+              <>
+                <div className="game-card__next-round-label">Next Round In</div>
+                <div className="game-card__next-round-time">{restCountdown}s</div>
+              </>
+            ) : roundState === "burst" ? (
+              <div className="game-card__burst-text">BURSTED</div>
+            ) : (
+              <div className="game-card__multiplier-value">{displayMultiplier}x</div>
             )}
-  
-            <div className="game-card__multiplier">
-              {roundState === "rest" ? (
-                <>
-                  <div className="game-card__next-round-label">Next Round In</div>
-                  <div className="game-card__next-round-time">{restCountdown}s</div>
-                </>
-              ) : roundState === "burst" ? (
-                <div className="game-card__burst-text">BURSTED</div>
-              ) : (
-                <div className="game-card__multiplier-value">{displayMultiplier}x</div>
-              )}
-            </div>
           </div>
         </div>
       </div>
-    );
+    </div>
+  );
 }
