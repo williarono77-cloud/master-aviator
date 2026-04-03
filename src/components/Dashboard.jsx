@@ -57,28 +57,42 @@ export default function Dashboard({ user, setMessage, onBackToGame, onDepositCli
           </button>
         </div>
       )}
-    <div className="dashboard__top" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '1rem', flexWrap: 'wrap' }}>
-      <div className="wallet-display">
-        <span className="wallet-display__label">Wallet balance</span>
-        <span className="wallet-display__value">{loading ? '…' : balance}</span>
-        <span className="wallet-display__hint">(read-only; updates after deposit callback)</span>
-      </div>
+      <div
+        className="dashboard__top"
+        style={{
+          display: 'flex',
+          justifyContent: 'space-between',
+          alignItems: 'center',
+          gap: '1rem',
+          flexWrap: 'wrap',
+        }}
+      >
+        <div className="wallet-display">
+          <span className="wallet-display__label">Wallet balance</span>
+          <span className="wallet-display__value">{loading ? '…' : balance}</span>
+          <span className="wallet-display__hint">(read-only; updates after deposit callback)</span>
+        </div>
       
-      <div style={{ display: 'flex', gap: '0.75rem', alignItems: 'center' }}>
-        {onDepositClick && (
+        <div style={{ display: 'flex', gap: '0.75rem', alignItems: 'center' }}>
           <button
             type="button"
             className="btn btn--primary"
-            onClick={onDepositClick}
+            onClick={() => {
+              if (onDepositClick) onDepositClick()
+            }}
           >
             Deposit
           </button>
-        )}
       
-        <button type="button" className="btn btn--secondary" onClick={refresh} disabled={refreshing}>
-          {refreshing ? 'Refreshing…' : 'Refresh'}
-        </button>
-      </div>
+          <button
+            type="button"
+            className="btn btn--secondary"
+            onClick={refresh}
+            disabled={refreshing}
+          >
+            {refreshing ? 'Refreshing…' : 'Refresh'}
+          </button>
+        </div>
       </div>
       <DepositPanel onDepositSuccess={refresh} setMessage={setMessage} />
       <WithdrawPanel
