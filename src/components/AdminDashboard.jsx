@@ -241,6 +241,13 @@ const refreshAdminActiveRound = useCallback(async () => {
     setRoundsReady(false);
   }
 }, []);
+
+  const refreshAdminRoundData = useCallback(async () => {
+  await Promise.all([
+    fetchAdminRoundsQueue(),
+    refreshAdminActiveRound(),
+  ]);
+}, [fetchAdminRoundsQueue, refreshAdminActiveRound]);
   
   const fetchAdminRoundsQueue = useCallback(async () => {
     setRoundsQueueError(null)
@@ -495,6 +502,28 @@ useEffect(() => {
   fetchRecentBurstedRounds,
   refreshAdminActiveRound,
 ])
+
+useEffect(() => {
+  if (!isSupabaseConfigured) return
+  if (profileRole !== 'admin') return
+
+  const channel = supabase
+    .channel('admin:rounds', { config: { private: true } })
+    .on('broadcast', { event: 'INSERT' }, () => {
+      refreshAdminRoundData()
+    })
+    .on('broadcast', { event: 'UPDATE' }, () => {
+      refreshAdminRoundData()
+    })
+    .on('broadcast', { event: 'DELETE' }, () => {
+      refreshAdminRoundData()
+    })
+    .subscribe()
+
+  return () => {
+    supabase.removeChannel(channel)
+  }
+}, [profileRole, refreshAdminRoundData])
   
   // Local demo: auto-generate + broadcast rounds on mount
   useEffect(() => {
