@@ -12,7 +12,7 @@ export default function TopBar({ onBack, fullscreen, onToggleFullscreen, onDepos
       <div className="top-bar__right">
         <button
           type="button"
-          className="top-bar__fullscreen"
+          className="bet-panel__bet-btn"
           onClick={onDepositClick}
         >
           <span>Deposit</span>
