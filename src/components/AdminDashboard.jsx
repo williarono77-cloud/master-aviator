@@ -684,11 +684,11 @@ useEffect(() => {
             }}
           >
             <div style={{ fontWeight: 600 }}>
-             {activeRound?.round_number != null ? `Round #${activeRound.round_number}` : 'No live round'}
+             {activeRound?.burst_point != null ? `${Number(activeRound.burst_point).toFixed(2)}x` : 'No live round'}
             </div>
             {activeRound?.round_number != null && (
               <div style={{ opacity: 0.8 }}>
-                Tracking via realtime from database. Bursted rounds will drop from the queue automatically.
+                Tracking via realtime from server.
               </div>
             )}
           </div>
