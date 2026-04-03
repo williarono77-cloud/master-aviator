@@ -501,7 +501,12 @@ const handleRestComplete = useCallback(async () => {
       />
 
       {showDashboard ? (
-        <Dashboard user={user} setMessage={setMessage} onBackToGame={() => setShowDashboard(false)} />
+        <Dashboard
+          user={user}
+          setMessage={setMessage}
+          onBackToGame={() => setShowDashboard(false)}
+          onDepositClick={() => setDepositModalOpen(true)}
+        />
       ) : (
         <>
           <GameHeader />
