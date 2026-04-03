@@ -57,7 +57,7 @@ export default function GameCard({ round, burstPoint, onMultiplierUpdate, onBurs
       const elapsed = now - startTime;
       const t = elapsed / 1000;
 
-      const k = 0.22;
+      const k = 0.18;
       const raw = 1 + (Math.exp(k * t) - 1);
       const next = Math.min(raw, target);
 
