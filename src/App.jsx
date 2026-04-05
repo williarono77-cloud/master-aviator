@@ -43,9 +43,6 @@ export default function App() {
     top: null,
     bottom: null,
   });
-  const handleBreakStateChange = useCallback((isBreakOpen) => {
-  console.log("Break state changed:", isBreakOpen);
-}, []);
 
   // Data state
   const [wallet, setWallet] = useState(null);
