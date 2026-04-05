@@ -57,6 +57,8 @@ export default function App() {
 
   const [activeRound, setActiveRound] = useState(null);
   const [roundsReady, setRoundsReady] = useState(false);
+  const [isBreakOpen, setIsBreakOpen] = useState(false);
+  const [bettableRound, setBettableRound] = useState(null);
 
   const demoRef = useRef({ seed: Math.floor(Math.random() * 1e9), seq: 0 });
 
@@ -330,6 +332,25 @@ useEffect(() => {
     setDepositModalOpen(false);
   }, [refreshPrivateData]);
 
+const fetchNextWaitingRound = useCallback(async () => {
+  if (!isSupabaseConfigured) return null;
+
+  const { data, error } = await supabase
+    .from("game_rounds")
+    .select("*")
+    .eq("status", "waiting")
+    .order("round_number", { ascending: true })
+    .limit(1)
+    .maybeSingle();
+
+  if (error) {
+    console.error("Failed to fetch next waiting round:", error);
+    return null;
+  }
+
+  return data ?? null;
+}, []);
+  
   const handleLogout = useCallback(async () => {
     try {
       clearAuthRole();
@@ -340,9 +361,9 @@ useEffect(() => {
     }
   }, []);
 
-  const betTargetRound = roundPhase === "break" ? pendingRound ?? activeRound : activeRound;
-  const betRoundPublicId = betTargetRound?.round_id ?? null;
-  const canBet = !!betTargetRound && !!betRoundPublicId;
+const betRound = isBreakOpen ? bettableRound : null;
+const betRoundPublicId = betRound?.round_id ?? null;
+const canBet = isBreakOpen && !!betRoundPublicId;
 
   const handleRoundStateChange = useCallback((state) => {
     if (state === "rest") {
@@ -449,6 +470,8 @@ useEffect(() => {
     if (!isSupabaseConfigured) return;
   
     let nextRound = pendingRoundRef.current;
+    setIsBreakOpen(false);
+    setBettableRound(null);
   
     if (!nextRound) {
       try {
@@ -473,7 +496,22 @@ useEffect(() => {
     pendingRoundRef.current = null;
   }, []);
 
+const handleBreakStateChange = useCallback(
+  async (breakOpen) => {
+    setIsBreakOpen(!!breakOpen);
 
+    if (breakOpen) {
+      const nextRound = await fetchNextWaitingRound();
+      setBettableRound(nextRound);
+      console.log("Break opened. Bettable waiting round:", nextRound);
+    } else {
+      setBettableRound(null);
+      console.log("Break closed. Betting disabled.");
+    }
+  },
+  [fetchNextWaitingRound]
+);
+  
   const handleBetClick = useCallback(
     async (action, stake, side) => {
       if (action === "auth") {
