@@ -662,15 +662,15 @@ useEffect(() => {
               Waiting for a live round from the server.
             </div>
           )}
-          <GameCard
-            key={activeRound?.id ?? "no-round"}
-            round={activeRound}
-            burstPoint={activeRound?.burst_point ?? null}
-            onMultiplierUpdate={setCurrentMultiplier}
-            onBurst={handleRoundBurst}
-            onRestComplete={handleRestComplete}
-            onRoundStateChange={handleRoundStateChange}
-          />
+        <GameCard
+          key={activeRound?.id ?? "no-round"}
+          round={activeRound}
+          burstPoint={activeRound?.burst_point ?? null}
+          onMultiplierUpdate={null}
+          onBurst={handleRoundBurst}
+          onBreakStateChange={handleBreakStateChange}
+          onRestComplete={handleRestComplete}
+        />
           
           <BetPanel
             panelId="1"
