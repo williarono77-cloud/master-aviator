@@ -348,7 +348,7 @@ const fetchNextWaitingRound = useCallback(async () => {
   return data ?? null;
 }, []);
 
-  useEffect(() => {
+useEffect(() => {
   let cancelled = false;
 
   const loadBettableRound = async () => {
@@ -363,9 +363,9 @@ const fetchNextWaitingRound = useCallback(async () => {
     }
 
     const nextWaiting = await fetchNextWaitingRound();
-
-    if (cancelled) return;
-    setBettableRound(nextWaiting ?? null);
+    if (!cancelled) {
+      setBettableRound(nextWaiting ?? null);
+    }
   };
 
   loadBettableRound();
@@ -386,8 +386,8 @@ const fetchNextWaitingRound = useCallback(async () => {
   }, []);
 
   const betRound = bettableRound ?? null;
-  const betRoundPublicId = betRound?.round_id ?? null;
-  const canBet = isBreakOpen && !!betRoundPublicId;
+const betRoundPublicId = betRound?.round_id ?? null;
+const canBet = isBreakOpen && !!betRoundPublicId;
 
   const handleRoundStateChange = useCallback((state) => {
     if (state === "rest") {
