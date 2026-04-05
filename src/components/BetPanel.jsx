@@ -76,7 +76,7 @@ export default function BetPanel({
   return (
     <div className="bet-panel" data-side={side}>
       <div className="bet-panel__header">
-        {side === "top" ? "Top (≥1.0x)" : "Bottom (<1.0x)"}
+        {side === "top" ? "Top (≥1.0x)" : "Bottom (&lt;1.0x)"}
       </div>
 
       <div className="bet-panel__tabs">
