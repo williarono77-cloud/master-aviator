@@ -545,16 +545,21 @@ const canBet = isBreakOpen && !!betRoundPublicId;
       const validSide = side === "top" || side === "bottom" ? side : "top";
       const existingBet = panelBets[validSide] ?? null;
   
-      if (action === "cashout") {
-        if (!existingBet || existingBet.status !== "placed") {
-          setMessage({ type: "error", text: "No active bet to cash out." });
-          return;
-        }
-  
-        if (roundPhase !== "rising") {
-          setMessage({ type: "error", text: "Cashout is only allowed while the round is rising." });
-          return;
-        }
+ if (action === "cashout") {
+  const currentBet = side === "top" ? panelBets.top : panelBets.bottom;
+
+  if (!currentBet || currentBet.status !== "placed") {
+    setToast({
+      kind: "info",
+      message: "Place a bet to play.",
+    });
+    return;
+  }
+
+  if (roundPhase !== "rising") {
+    return;
+  }
+
   
         const liveMultiplier = Number(currentMultiplier);
   
@@ -739,7 +744,7 @@ const canBet = isBreakOpen && !!betRoundPublicId;
             side="top"
             session={session}
             onBetClick={handleBetClick}
-            disabled={!canBet}
+            disabled={!canBet && roundPhase !== "rising"}
             roundPhase={roundPhase}
             activeBet={panelBets.top}
             currentMultiplier={currentMultiplier}
@@ -750,7 +755,7 @@ const canBet = isBreakOpen && !!betRoundPublicId;
             side="bottom"
             session={session}
             onBetClick={handleBetClick}
-            disabled={!canBet}
+            disabled={!canBet && roundPhase !== "rising"}
             roundPhase={roundPhase}
             activeBet={panelBets.bottom}
             currentMultiplier={currentMultiplier}
