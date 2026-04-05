@@ -89,31 +89,31 @@ export default function GameCard({ round,
           onBreakStateChange(true);
         }
 
-          let remaining = 5;
-
-          const interval = setInterval(() => {
-            remaining -= 1;
-            setRestCountdown(remaining);
-            setRestProgress((5 - remaining) / 5);
-
-      if (remaining <= 0) {
-        clearInterval(interval);
-        restTimerRef.current = null;
-        setMultiplier(1.0);
-        setRoundState("live");
-        roundStateRef.current = "live";
-        setRestProgress(1);
+      let remaining = 5;
+      const interval = setInterval(() => {
+        remaining -= 1;
+        setRestCountdown(remaining);
+        setRestProgress((5 - remaining) / 5);
       
-        if (onBreakStateChange) {
-          onBreakStateChange(false);
-        }
+        if (remaining <= 0) {
+          clearInterval(interval);
+          restTimerRef.current = null;
+          setMultiplier(1.0);
+          setRoundState("live");
+          roundStateRef.current = "live";
+          setRestProgress(1);
       
-        if (onRestComplete) {
-          onRestComplete();
+          if (onBreakStateChange) {
+            onBreakStateChange(false);
+          }
+      
+          if (onRestComplete) {
+            onRestComplete();
+          }
         }
       }, 1000);
-
-          restTimerRef.current = interval;
+      
+      restTimerRef.current = interval;
         }, 1500);
 
         return;
