@@ -406,9 +406,9 @@ const fetchNextWaitingRound = useCallback(async () => {
   const handleRoundBurst = useCallback(
     async (finishedRound) => {
       if (!finishedRound) return;
-  
       setRoundPhase("burst");
       setCurrentMultiplier(Number(finishedRound?.burst_point ?? 1));
+      setBettableRound(null);
   
       const hadOpenBets = Object.values(panelBets).some(
         (bet) => bet?.status === "placed"
