@@ -1,13 +1,11 @@
 import React, { useEffect, useRef, useState } from "react";
 
-export default function GameCard({
-  round,
-  burstPoint,
-  onMultiplierUpdate,
-  onBurst,
-  onRestComplete,
-  onRoundStateChange,
-}) {
+export default function GameCard({ round, 
+                                  burstPoint, 
+                                  onMultiplierUpdate,
+                                  onBurst,
+                                  onBreakStateChange,
+                                  onRestComplete }) {
   const [multiplier, setMultiplier] = useState(1.0);
   const [roundState, setRoundState] = useState("live"); // 'live' | 'burst' | 'rest'
   const [restCountdown, setRestCountdown] = useState(5);
@@ -45,6 +43,10 @@ export default function GameCard({
     setRestCountdown(5);
     setRestProgress(0);
     hasBurstRef.current = false;
+    
+    if (onBreakStateChange) {
+      onBreakStateChange(false);
+    }
 
     const numericBurst = Number(burstPoint);
     const willRun =
@@ -77,11 +79,15 @@ export default function GameCard({
         roundStateRef.current = "burst";
         onBurst?.(round);
 
-        burstTimerRef.current = setTimeout(() => {
-          setRoundState("rest");
-          roundStateRef.current = "rest";
-          setRestCountdown(5);
-          setRestProgress(0);
+      burstTimerRef.current = setTimeout(() => {
+        setRoundState("rest");
+        roundStateRef.current = "rest";
+        setRestCountdown(5);
+        setRestProgress(0);
+      
+        if (onBreakStateChange) {
+          onBreakStateChange(true);
+        }
 
           let remaining = 5;
 
@@ -90,16 +96,22 @@ export default function GameCard({
             setRestCountdown(remaining);
             setRestProgress((5 - remaining) / 5);
 
-            if (remaining <= 0) {
-              clearInterval(interval);
-              restTimerRef.current = null;
-              setMultiplier(1.0);
-              setRoundState("live");
-              roundStateRef.current = "live";
-              setRestProgress(1);
-              onRestComplete?.();
-            }
-          }, 1000);
+      if (remaining <= 0) {
+        clearInterval(interval);
+        restTimerRef.current = null;
+        setMultiplier(1.0);
+        setRoundState("live");
+        roundStateRef.current = "live";
+        setRestProgress(1);
+      
+        if (onBreakStateChange) {
+          onBreakStateChange(false);
+        }
+      
+        if (onRestComplete) {
+          onRestComplete();
+        }
+      }, 1000);
 
           restTimerRef.current = interval;
         }, 1500);
