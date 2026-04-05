@@ -1,13 +1,13 @@
 import React, { useEffect, useRef, useState } from "react";
 
 export default function GameCard({
-        round,
-        burstPoint,
-        onMultiplierUpdate,
-        onBurst,
-        onBreakStateChange,
-        onRestComplete,
-      }) {
+  round,
+  burstPoint,
+  onMultiplierUpdate,
+  onBurst,
+  onBreakStateChange,
+  onRestComplete,
+}) {
   const [multiplier, setMultiplier] = useState(1.0);
   const [roundState, setRoundState] = useState("live"); // 'live' | 'burst' | 'rest'
   const [restCountdown, setRestCountdown] = useState(5);
@@ -18,10 +18,6 @@ export default function GameCard({
   const burstTimerRef = useRef(null);
   const roundStateRef = useRef("live");
   const hasBurstRef = useRef(false);
-
-  useEffect(() => {
-    onBreakStateChange?.(roundState);
-  }, [roundState, onBreakStateChange]);
 
   useEffect(() => {
     if (rafRef.current) {
@@ -45,7 +41,8 @@ export default function GameCard({
     setRestCountdown(5);
     setRestProgress(0);
     hasBurstRef.current = false;
-    
+
+    // Break is closed while multiplier is rising
     if (onBreakStateChange) {
       onBreakStateChange(false);
     }
@@ -57,7 +54,20 @@ export default function GameCard({
       numericBurst >= 1;
 
     if (!willRun) {
-      return;
+      return () => {
+        if (rafRef.current) {
+          cancelAnimationFrame(rafRef.current);
+          rafRef.current = null;
+        }
+        if (restTimerRef.current) {
+          clearInterval(restTimerRef.current);
+          restTimerRef.current = null;
+        }
+        if (burstTimerRef.current) {
+          clearTimeout(burstTimerRef.current);
+          burstTimerRef.current = null;
+        }
+      };
     }
 
     const startTime = performance.now();
@@ -68,54 +78,66 @@ export default function GameCard({
 
       const elapsed = now - startTime;
       const t = elapsed / 1000;
+
+      // Lower k = slower multiplier rise
       const k = 0.18;
       const raw = 1 + (Math.exp(k * t) - 1);
       const next = Math.min(raw, target);
 
       setMultiplier(next);
-      onMultiplierUpdate?.(next);
+
+      if (onMultiplierUpdate) {
+        onMultiplierUpdate(next);
+      }
 
       if (!hasBurstRef.current && next >= target) {
         hasBurstRef.current = true;
         setRoundState("burst");
         roundStateRef.current = "burst";
-        onBurst?.(round);
 
-      burstTimerRef.current = setTimeout(() => {
-        setRoundState("rest");
-        roundStateRef.current = "rest";
-        setRestCountdown(5);
-        setRestProgress(0);
-      
-        if (onBreakStateChange) {
-          onBreakStateChange(true);
+        if (onBurst) {
+          onBurst(round);
         }
 
-      let remaining = 5;
-      const interval = setInterval(() => {
-        remaining -= 1;
-        setRestCountdown(remaining);
-        setRestProgress((5 - remaining) / 5);
-      
-        if (remaining <= 0) {
-          clearInterval(interval);
-          restTimerRef.current = null;
-          setMultiplier(1.0);
-          setRoundState("live");
-          roundStateRef.current = "live";
-          setRestProgress(1);
-      
+        burstTimerRef.current = setTimeout(() => {
+          setRoundState("rest");
+          roundStateRef.current = "rest";
+          setRestCountdown(5);
+          setRestProgress(0);
+
+          // Break is open once multiplier has stopped
           if (onBreakStateChange) {
-            onBreakStateChange(false);
+            onBreakStateChange(true);
           }
-      
-          if (onRestComplete) {
-            onRestComplete();
-          }
-        }
-      }, 1000);
-      
-      restTimerRef.current = interval;
+
+          let remaining = 5;
+
+          const interval = setInterval(() => {
+            remaining -= 1;
+            setRestCountdown(remaining);
+            setRestProgress((5 - remaining) / 5);
+
+            if (remaining <= 0) {
+              clearInterval(interval);
+              restTimerRef.current = null;
+
+              setMultiplier(1.0);
+              setRoundState("live");
+              roundStateRef.current = "live";
+              setRestProgress(1);
+
+              // Break closes when next round starts rising
+              if (onBreakStateChange) {
+                onBreakStateChange(false);
+              }
+
+              if (onRestComplete) {
+                onRestComplete();
+              }
+            }
+          }, 1000);
+
+          restTimerRef.current = interval;
         }, 1500);
 
         return;
@@ -129,6 +151,7 @@ export default function GameCard({
     return () => {
       if (rafRef.current) {
         cancelAnimationFrame(rafRef.current);
+        rafRef.current = null;
       }
       if (restTimerRef.current) {
         clearInterval(restTimerRef.current);
@@ -139,7 +162,14 @@ export default function GameCard({
         burstTimerRef.current = null;
       }
     };
-  }, [burstPoint, round, onMultiplierUpdate, onBurst, onRestComplete, onBreakStateChange]);
+  }, [
+    burstPoint,
+    round,
+    onMultiplierUpdate,
+    onBurst,
+    onBreakStateChange,
+    onRestComplete,
+  ]);
 
   const numMultiplier =
     multiplier === null || multiplier === undefined ? null : Number(multiplier);
@@ -160,19 +190,19 @@ export default function GameCard({
             <div className="game-card__plane-x" />
           </div>
         </div>
-  
+
         <div className="game-card__rings">
           <div className="game-card__ring game-card__ring--outer" />
           <div className="game-card__ring game-card__ring--middle" />
           <div className="game-card__ring game-card__ring--inner" />
-  
+
           {roundState === "rest" && (
             <div
               className="game-card__rest-ring"
               style={{ "--rest-progress": restProgress }}
             />
           )}
-  
+
           <div className="game-card__multiplier">
             {roundState === "rest" ? (
               <>
