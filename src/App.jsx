@@ -358,9 +358,9 @@ const fetchNextWaitingRound = useCallback(async () => {
     }
   }, []);
 
-const betRound = isBreakOpen ? bettableRound : null;
-const betRoundPublicId = betRound?.round_id ?? null;
-const canBet = isBreakOpen && !!betRoundPublicId;
+  const betRound = activeRound ?? null;
+  const betRoundPublicId = betRound?.round_id ?? null;
+  const canBet = isBreakOpen;
 
   const handleRoundStateChange = useCallback((state) => {
     if (state === "rest") {
@@ -493,21 +493,9 @@ const canBet = isBreakOpen && !!betRoundPublicId;
     pendingRoundRef.current = null;
   }, []);
 
-const handleBreakStateChange = useCallback(
-  async (breakOpen) => {
-    setIsBreakOpen(!!breakOpen);
-
-    if (breakOpen) {
-      const nextRound = await fetchNextWaitingRound();
-      setBettableRound(nextRound);
-      console.log("Break opened. Bettable waiting round:", nextRound);
-    } else {
-      setBettableRound(null);
-      console.log("Break closed. Betting disabled.");
-    }
-  },
-  [fetchNextWaitingRound]
-);
+  const handleBreakStateChange = useCallback((breakOpen) => {
+    setIsBreakOpen(Boolean(breakOpen));
+  }, []);
   
   const handleBetClick = useCallback(
     async (action, stake, side) => {
@@ -566,10 +554,10 @@ const handleBreakStateChange = useCallback(
         return;
       }
   
-      if (roundPhase !== "break") {
-        setMessage({ type: "error", text: "You can only place a bet during the break." });
-        return;
-      }
+        if (!canBet) {
+          setMessage({ type: "error", text: "You can only place bets in the break." });
+          return;
+        }
   
       if (existingBet?.status === "placed") {
         setMessage({ type: "error", text: "You already have an open bet on this panel." });
