@@ -347,6 +347,33 @@ const fetchNextWaitingRound = useCallback(async () => {
 
   return data ?? null;
 }, []);
+
+  useEffect(() => {
+  let cancelled = false;
+
+  const loadBettableRound = async () => {
+    if (!isSupabaseConfigured) {
+      setBettableRound(null);
+      return;
+    }
+
+    if (!isBreakOpen) {
+      setBettableRound(null);
+      return;
+    }
+
+    const nextWaiting = await fetchNextWaitingRound();
+
+    if (cancelled) return;
+    setBettableRound(nextWaiting ?? null);
+  };
+
+  loadBettableRound();
+
+  return () => {
+    cancelled = true;
+  };
+}, [isBreakOpen, fetchNextWaitingRound]);
   
   const handleLogout = useCallback(async () => {
     try {
@@ -358,9 +385,9 @@ const fetchNextWaitingRound = useCallback(async () => {
     }
   }, []);
 
-  const betRound = activeRound ?? null;
+  const betRound = bettableRound ?? null;
   const betRoundPublicId = betRound?.round_id ?? null;
-  const canBet = isBreakOpen;
+  const canBet = isBreakOpen && !!betRoundPublicId;
 
   const handleRoundStateChange = useCallback((state) => {
     if (state === "rest") {
@@ -484,6 +511,15 @@ const fetchNextWaitingRound = useCallback(async () => {
     setPendingRound(null);
     setCurrentMultiplier(1);
     setRoundPhase("break");
+    
+    try {
+      const nextWaiting = await fetchNextWaitingRound();
+      setBettableRound(nextWaiting ?? null);
+    } catch (error) {
+      console.error("fetchNextWaitingRound failed at rest complete:", error);
+      setBettableRound(null);
+    }
+    
     setPanelBets({
       top: null,
       bottom: null,
@@ -491,7 +527,7 @@ const fetchNextWaitingRound = useCallback(async () => {
   
     finishedRoundRef.current = null;
     pendingRoundRef.current = null;
-  }, []);
+  }, [fetchNextWaitingRound]);
 
   const handleBreakStateChange = useCallback((breakOpen) => {
     setIsBreakOpen(Boolean(breakOpen));
