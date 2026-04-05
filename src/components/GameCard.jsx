@@ -1,11 +1,13 @@
 import React, { useEffect, useRef, useState } from "react";
 
-export default function GameCard({ round, 
-                                  burstPoint, 
-                                  onMultiplierUpdate,
-                                  onBurst,
-                                  onBreakStateChange,
-                                  onRestComplete }) {
+export default function GameCard({
+        round,
+        burstPoint,
+        onMultiplierUpdate,
+        onBurst,
+        onBreakStateChange,
+        onRestComplete,
+      }) {
   const [multiplier, setMultiplier] = useState(1.0);
   const [roundState, setRoundState] = useState("live"); // 'live' | 'burst' | 'rest'
   const [restCountdown, setRestCountdown] = useState(5);
@@ -18,8 +20,8 @@ export default function GameCard({ round,
   const hasBurstRef = useRef(false);
 
   useEffect(() => {
-    onRoundStateChange?.(roundState);
-  }, [roundState, onRoundStateChange]);
+    onBreakStateChange?.(roundState);
+  }, [roundState, onBreakStateChange]);
 
   useEffect(() => {
     if (rafRef.current) {
@@ -137,7 +139,7 @@ export default function GameCard({ round,
         burstTimerRef.current = null;
       }
     };
-  }, [burstPoint, round, onMultiplierUpdate, onBurst, onRestComplete, onRoundStateChange]);
+  }, [burstPoint, round, onMultiplierUpdate, onBurst, onRestComplete, onBreakStateChange]);
 
   const numMultiplier =
     multiplier === null || multiplier === undefined ? null : Number(multiplier);
