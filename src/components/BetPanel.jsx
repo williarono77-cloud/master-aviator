@@ -17,38 +17,34 @@ export default function BetPanel({
   const [stake, setStakeState] = useState(() => getStake(panelId) || 100);
   const [activeTab, setActiveTab] = useState("bet");
 
+  const isRising = roundPhase === "rising";
+  const hasActiveBet = activeBet?.status === "placed";
+
   function updateStake(delta) {
+    if (isRising) return;
     const newStake = Math.max(100, stake + delta);
     setStakeState(newStake);
     setStake(panelId, newStake);
   }
 
   function setQuickChip(value) {
+    if (isRising) return;
     setStakeState(value);
     setStake(panelId, value);
   }
 
-  const hasOpenBet = activeBet?.status === "placed";
-  const isBreak = roundPhase === "break";
-  const isRising = roundPhase === "rising";
-  const canPlaceBet = isBreak && !hasOpenBet && !disabled;
-  const canCashout = isRising && hasOpenBet;
-
-  const actionLabel = canCashout ? "Cashout" : "Bet";
+  const actionLabel = isRising ? "Cashout" : "Bet";
 
   const actionAmount = useMemo(() => {
-    if (canCashout) {
+    if (isRising) {
+      if (!hasActiveBet) return formatMoney(0);
       const live = Number(currentMultiplier);
       const safe = Number.isFinite(live) && live > 1 ? live : 1;
-      return formatMoney((activeBet?.stake ?? 0) * safe);
-    }
-
-    if (hasOpenBet) {
-      return formatMoney(activeBet?.stake ?? 0);
+      return formatMoney(activeBet.stake * safe);
     }
 
     return formatMoney(stake);
-  }, [canCashout, currentMultiplier, activeBet, hasOpenBet, stake]);
+  }, [isRising, hasActiveBet, currentMultiplier, activeBet, stake]);
 
   function handlePrimaryAction() {
     if (!session) {
@@ -56,14 +52,13 @@ export default function BetPanel({
       return;
     }
 
-    if (canCashout) {
-      onBetClick?.("cashout", activeBet?.stake, side);
+    if (isRising) {
+      onBetClick?.("cashout", activeBet?.stake ?? stake, side);
       return;
     }
 
-    if (canPlaceBet) {
-      onBetClick?.("bet", stake, side);
-    }
+    if (disabled) return;
+    onBetClick?.("bet", stake, side);
   }
 
   return (
@@ -95,7 +90,7 @@ export default function BetPanel({
           type="button"
           className="bet-panel__stake-btn"
           onClick={() => updateStake(-10)}
-          disabled={hasOpenBet || isRising}
+          disabled={isRising}
         >
           −
         </button>
@@ -106,7 +101,7 @@ export default function BetPanel({
           type="button"
           className="bet-panel__stake-btn"
           onClick={() => updateStake(10)}
-          disabled={hasOpenBet || isRising}
+          disabled={isRising}
         >
           +
         </button>
@@ -119,7 +114,7 @@ export default function BetPanel({
             type="button"
             className="bet-panel__chip"
             onClick={() => setQuickChip(chip)}
-            disabled={hasOpenBet || isRising}
+            disabled={isRising}
           >
             {chip.toLocaleString()}
           </button>
@@ -128,10 +123,9 @@ export default function BetPanel({
 
       <button
         type="button"
-        className={`bet-panel__bet-btn ${canCashout ? "bet-panel__bet-btn--cashout" : ""}`}
+        className={`bet-panel__bet-btn ${isRising ? "bet-panel__bet-btn--cashout" : ""}`}
         onClick={handlePrimaryAction}
-        disabled={!canCashout && !canPlaceBet && !!session}
-        aria-disabled={!canCashout && !canPlaceBet && !!session}
+        disabled={!isRising && disabled}
       >
         <span>{actionLabel}</span>
         <span>{actionAmount}</span>
