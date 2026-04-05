@@ -28,34 +28,27 @@ export default function BetPanel({
     setStake(panelId, value);
   }
 
-  const hasPlacedBet = activeBet?.status === "placed";
-  const isRising = roundPhase === "rising";
+  const hasOpenBet = activeBet?.status === "placed";
   const isBreak = roundPhase === "break";
-  const canCashout = isRising && hasPlacedBet;
-  const canPlaceBet = isBreak && !hasPlacedBet && !disabled;
-  const showActionButton = canCashout || isBreak || hasPlacedBet;
+  const isRising = roundPhase === "rising";
+  const canPlaceBet = isBreak && !hasOpenBet && !disabled;
+  const canCashout = isRising && hasOpenBet;
 
-  const actionLabel = useMemo(() => {
-    if (canCashout) return "Cashout";
-    return "Bet";
-  }, [canCashout]);
+  const actionLabel = canCashout ? "Cashout" : "Bet";
 
   const actionAmount = useMemo(() => {
     if (canCashout) {
-      const liveMultiplier = Number(currentMultiplier);
-      const safeMultiplier =
-        Number.isFinite(liveMultiplier) && liveMultiplier > 1
-          ? liveMultiplier
-          : 1;
-      return formatMoney(activeBet.stake * safeMultiplier);
+      const live = Number(currentMultiplier);
+      const safe = Number.isFinite(live) && live > 1 ? live : 1;
+      return formatMoney((activeBet?.stake ?? 0) * safe);
     }
 
-    if (hasPlacedBet) {
-      return formatMoney(activeBet.stake);
+    if (hasOpenBet) {
+      return formatMoney(activeBet?.stake ?? 0);
     }
 
     return formatMoney(stake);
-  }, [canCashout, currentMultiplier, activeBet, hasPlacedBet, stake]);
+  }, [canCashout, currentMultiplier, activeBet, hasOpenBet, stake]);
 
   function handlePrimaryAction() {
     if (!session) {
@@ -76,7 +69,7 @@ export default function BetPanel({
   return (
     <div className="bet-panel" data-side={side}>
       <div className="bet-panel__header">
-        {side === "top" ? "Top (≥1.0x)" : "Bottom (&lt;1.0x)"}
+        {side === "top" ? "Top (≥1.0x)" : "Bottom (<1.0x)"}
       </div>
 
       <div className="bet-panel__tabs">
@@ -102,7 +95,7 @@ export default function BetPanel({
           type="button"
           className="bet-panel__stake-btn"
           onClick={() => updateStake(-10)}
-          disabled={hasPlacedBet || isRising}
+          disabled={hasOpenBet || isRising}
         >
           −
         </button>
@@ -113,7 +106,7 @@ export default function BetPanel({
           type="button"
           className="bet-panel__stake-btn"
           onClick={() => updateStake(10)}
-          disabled={hasPlacedBet || isRising}
+          disabled={hasOpenBet || isRising}
         >
           +
         </button>
@@ -126,25 +119,23 @@ export default function BetPanel({
             type="button"
             className="bet-panel__chip"
             onClick={() => setQuickChip(chip)}
-            disabled={hasPlacedBet || isRising}
+            disabled={hasOpenBet || isRising}
           >
             {chip.toLocaleString()}
           </button>
         ))}
       </div>
 
-      {showActionButton ? (
-        <button
-          type="button"
-          className={`bet-panel__bet-btn ${canCashout ? "bet-panel__bet-btn--cashout" : ""}`}
-          onClick={handlePrimaryAction}
-          disabled={!canCashout && !canPlaceBet && !(!session && isBreak)}
-          aria-disabled={!canCashout && !canPlaceBet && !(!session && isBreak)}
-        >
-          <span>{actionLabel}</span>
-          <span>{actionAmount}</span>
-        </button>
-      ) : null}
+      <button
+        type="button"
+        className={`bet-panel__bet-btn ${canCashout ? "bet-panel__bet-btn--cashout" : ""}`}
+        onClick={handlePrimaryAction}
+        disabled={!canCashout && !canPlaceBet && !!session}
+        aria-disabled={!canCashout && !canPlaceBet && !!session}
+      >
+        <span>{actionLabel}</span>
+        <span>{actionAmount}</span>
+      </button>
     </div>
   );
 }
