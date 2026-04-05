@@ -42,7 +42,7 @@ export default function GameCard({
     setRestProgress(0);
     hasBurstRef.current = false;
 
-    // Break is closed while multiplier is rising
+    // Multiplier is rising -> break is OFF
     if (onBreakStateChange) {
       onBreakStateChange(false);
     }
@@ -79,7 +79,6 @@ export default function GameCard({
       const elapsed = now - startTime;
       const t = elapsed / 1000;
 
-      // Lower k = slower multiplier rise
       const k = 0.18;
       const raw = 1 + (Math.exp(k * t) - 1);
       const next = Math.min(raw, target);
@@ -105,7 +104,7 @@ export default function GameCard({
           setRestCountdown(5);
           setRestProgress(0);
 
-          // Break is open once multiplier has stopped
+          // Multiplier stopped -> break is ON
           if (onBreakStateChange) {
             onBreakStateChange(true);
           }
@@ -126,7 +125,7 @@ export default function GameCard({
               roundStateRef.current = "live";
               setRestProgress(1);
 
-              // Break closes when next round starts rising
+              // Break ends -> multiplier rising again -> break OFF
               if (onBreakStateChange) {
                 onBreakStateChange(false);
               }
